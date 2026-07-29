@@ -32,13 +32,17 @@ from .audit import AuditLogListResponse, AuditLogResponse, AuditStatsResponse
 from .auth import PendingStatusResponse, UserRegistration, UserRegistrationResponse
 from .item import Item, ItemBase, ItemCreate
 from .policy import (
+    MatchedPolicySummary,
     PolicyActionResponse,
     PolicyBase,
     PolicyCreate,
+    PolicyEvaluationRequest,
+    PolicyEvaluationResponse,
     PolicyFilters,
     PolicyListResponse,
     PolicyResponse,
     PolicyUpdate,
+    PolicyVerdict,
 )
 from .work_item import (
     WorkItemActionResponse,
@@ -113,4 +117,8 @@ __all__ = [
     "PolicyListResponse",
     "PolicyFilters",
     "PolicyActionResponse",
+    "PolicyVerdict",
+    "PolicyEvaluationRequest",
+    "PolicyEvaluationResponse",
+    "MatchedPolicySummary",
 ]

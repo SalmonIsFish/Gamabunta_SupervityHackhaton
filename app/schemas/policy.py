@@ -4,6 +4,7 @@ Pydantic schemas for AI Policies.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -80,3 +81,43 @@ class PolicyActionResponse(BaseModel):
     policy_id: int
     action: str
     message: str
+
+
+# =============================================================================
+# EVALUATION SCHEMAS
+# =============================================================================
+
+
+class PolicyVerdict(str, Enum):
+    """Outcome of evaluating all applicable structured policies against an entity."""
+
+    NO_POLICY_APPLIES = "no_policy_applies"  # Nothing matched
+    AUTO_APPROVED = "auto_approved"  # Only permissive actions matched (e.g. auto_approve)
+    REQUIRES_REVIEW = "requires_review"  # Only gating actions matched (e.g. require_approval)
+    BLOCKED_PENDING_REVIEW = "blocked_pending_review"  # Both matched — conflict, routed to Workbench
+
+
+class PolicyEvaluationRequest(BaseModel):
+    """Request to evaluate structured policies for a domain against a runtime entity."""
+
+    domain: str = Field(..., min_length=1, max_length=100)
+    entity_type: str = Field(..., min_length=1, max_length=100, description="e.g. 'lead', 'invoice', 'deal'")
+    entity_data: dict[str, Any] = Field(..., description="The entity's fields, checked against policy conditions")
+    source_agent: Optional[str] = Field(None, description="The agent/operator requesting the decision")
+
+
+class MatchedPolicySummary(BaseModel):
+    """One policy that matched during evaluation."""
+
+    id: int
+    name: str
+    action: Optional[str] = None
+    bucket: str = Field(..., description="'permissive' or 'gating'")
+
+
+class PolicyEvaluationResponse(BaseModel):
+    """Result of a policy evaluation."""
+
+    verdict: PolicyVerdict
+    matched_policies: list[MatchedPolicySummary]
+    workbench_item_id: Optional[int] = None

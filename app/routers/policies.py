@@ -22,11 +22,14 @@ from ..models.policy import Policy, PolicyStatus, PolicyType
 from ..schemas.policy import (
     PolicyActionResponse,
     PolicyCreate,
+    PolicyEvaluationRequest,
+    PolicyEvaluationResponse,
     PolicyListResponse,
     PolicyResponse,
     PolicyUpdate,
 )
 from ..security import get_current_user
+from ..services import policy_engine
 from ..services.audit import audit
 
 log = logging.getLogger(__name__)
@@ -117,6 +120,33 @@ async def create_policy(
     db.commit()
     db.refresh(policy)
     return PolicyResponse.model_validate(policy)
+
+
+@router.post("/evaluate", response_model=PolicyEvaluationResponse)
+async def evaluate_policies(
+    payload: PolicyEvaluationRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Evaluate ACTIVE structured policies for a domain against a runtime entity.
+
+    Called by an agent (via Auto) mid-workflow to check whether it can proceed,
+    needs a human to review, or has hit conflicting policies. A conflict raises
+    a WorkItem in the AI Workbench automatically.
+    """
+    result = await policy_engine.evaluate(
+        domain=payload.domain,
+        entity_type=payload.entity_type,
+        entity_data=payload.entity_data,
+        source_agent=payload.source_agent,
+        db=db,
+    )
+    return PolicyEvaluationResponse(
+        verdict=result.verdict,
+        matched_policies=result.matched_policies,
+        workbench_item_id=result.workbench_item_id,
+    )
 
 
 @router.get("/{policy_id}", response_model=PolicyResponse)

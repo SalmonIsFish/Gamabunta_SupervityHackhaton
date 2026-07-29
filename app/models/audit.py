@@ -71,6 +71,7 @@ class AuditCategory(str, Enum):
     SYSTEM = "system"  # System events (startup, shutdown, etc.)
     API = "api"  # API access patterns (middleware-generated)
     ERROR = "error"  # Error events
+    POLICY = "policy"  # AI policy evaluations and lifecycle changes
 
 
 class AuditSeverity(str, Enum):
