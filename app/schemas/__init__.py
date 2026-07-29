@@ -31,6 +31,15 @@ from .admin import (
 from .audit import AuditLogListResponse, AuditLogResponse, AuditStatsResponse
 from .auth import PendingStatusResponse, UserRegistration, UserRegistrationResponse
 from .item import Item, ItemBase, ItemCreate
+from .policy import (
+    PolicyActionResponse,
+    PolicyBase,
+    PolicyCreate,
+    PolicyFilters,
+    PolicyListResponse,
+    PolicyResponse,
+    PolicyUpdate,
+)
 from .work_item import (
     WorkItemActionResponse,
     WorkItemBase,
@@ -96,4 +105,12 @@ __all__ = [
     "WorkItemFilters",
     "WorkItemResolveRequest",
     "WorkItemActionResponse",
+    # Policy schemas
+    "PolicyBase",
+    "PolicyCreate",
+    "PolicyUpdate",
+    "PolicyResponse",
+    "PolicyListResponse",
+    "PolicyFilters",
+    "PolicyActionResponse",
 ]

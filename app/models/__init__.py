@@ -1,6 +1,7 @@
 # app/models/__init__.py
 from .audit import AuditCategory, AuditLog, AuditSeverity
 from .item import Item
+from .policy import Policy, PolicyStatus, PolicyType
 from .settings import Settings
 from .work_item import (
     WorkItem,
@@ -21,4 +22,7 @@ __all__ = [
     "WorkItemStatus",
     "WorkItemPriority",
     "WorkItemResolution",
+    "Policy",
+    "PolicyType",
+    "PolicyStatus",
 ]
