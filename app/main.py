@@ -41,6 +41,7 @@ from .routers import (
     auth_router,
     examples_router,
     health_router,
+    insights_router,
     items_router,
     policies_router,
     workbench_router,
@@ -158,6 +159,9 @@ api_router.include_router(workbench_router)
 
 # AI Policies (governance layer)
 api_router.include_router(policies_router)
+
+# AI Insights (visibility layer)
+api_router.include_router(insights_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)

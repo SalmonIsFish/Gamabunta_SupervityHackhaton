@@ -1,5 +1,6 @@
 # app/models/__init__.py
 from .audit import AuditCategory, AuditLog, AuditSeverity
+from .insight import Insight, InsightSeverity, InsightStatus, InsightType
 from .item import Item
 from .policy import Policy, PolicyStatus, PolicyType
 from .settings import Settings
@@ -25,4 +26,8 @@ __all__ = [
     "Policy",
     "PolicyType",
     "PolicyStatus",
+    "Insight",
+    "InsightType",
+    "InsightSeverity",
+    "InsightStatus",
 ]

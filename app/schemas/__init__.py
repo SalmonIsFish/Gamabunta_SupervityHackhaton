@@ -30,6 +30,15 @@ from .admin import (
 )
 from .audit import AuditLogListResponse, AuditLogResponse, AuditStatsResponse
 from .auth import PendingStatusResponse, UserRegistration, UserRegistrationResponse
+from .insight import (
+    InsightActionResponse,
+    InsightBase,
+    InsightCreate,
+    InsightFilters,
+    InsightGenerateResponse,
+    InsightListResponse,
+    InsightResponse,
+)
 from .item import Item, ItemBase, ItemCreate
 from .policy import (
     MatchedPolicySummary,
@@ -121,4 +130,12 @@ __all__ = [
     "PolicyEvaluationRequest",
     "PolicyEvaluationResponse",
     "MatchedPolicySummary",
+    # Insight schemas
+    "InsightBase",
+    "InsightCreate",
+    "InsightResponse",
+    "InsightListResponse",
+    "InsightFilters",
+    "InsightActionResponse",
+    "InsightGenerateResponse",
 ]
