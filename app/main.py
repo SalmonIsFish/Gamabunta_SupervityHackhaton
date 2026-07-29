@@ -42,6 +42,7 @@ from .routers import (
     examples_router,
     health_router,
     items_router,
+    workbench_router,
 )
 from .security import get_current_user, verify_access
 
@@ -150,6 +151,9 @@ api_router.include_router(audit_router)
 
 # Item CRUD operations
 api_router.include_router(items_router)
+
+# AI Workbench (human-in-the-loop exception queue)
+api_router.include_router(workbench_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)

@@ -31,6 +31,15 @@ from .admin import (
 from .audit import AuditLogListResponse, AuditLogResponse, AuditStatsResponse
 from .auth import PendingStatusResponse, UserRegistration, UserRegistrationResponse
 from .item import Item, ItemBase, ItemCreate
+from .work_item import (
+    WorkItemActionResponse,
+    WorkItemBase,
+    WorkItemCreate,
+    WorkItemFilters,
+    WorkItemListResponse,
+    WorkItemResolveRequest,
+    WorkItemResponse,
+)
 
 __all__ = [
     # Item schemas
@@ -79,4 +88,12 @@ __all__ = [
     "AuditLogResponse",
     "AuditLogListResponse",
     "AuditStatsResponse",
+    # Work item schemas
+    "WorkItemBase",
+    "WorkItemCreate",
+    "WorkItemResponse",
+    "WorkItemListResponse",
+    "WorkItemFilters",
+    "WorkItemResolveRequest",
+    "WorkItemActionResponse",
 ]
