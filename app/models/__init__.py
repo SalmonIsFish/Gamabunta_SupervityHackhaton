@@ -1,5 +1,6 @@
 # app/models/__init__.py
 from .audit import AuditCategory, AuditLog, AuditSeverity
+from .chat import ChatMessage, ChatRole
 from .insight import Insight, InsightSeverity, InsightStatus, InsightType
 from .item import Item
 from .policy import Policy, PolicyStatus, PolicyType
@@ -30,4 +31,6 @@ __all__ = [
     "InsightType",
     "InsightSeverity",
     "InsightStatus",
+    "ChatMessage",
+    "ChatRole",
 ]

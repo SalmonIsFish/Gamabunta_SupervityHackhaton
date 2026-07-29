@@ -3,7 +3,7 @@
     "description": "Any authenticated user can check their pending status",
     "ALL": []
   },
-  "/api/ai/chat": {
+  "/api/ai/chat.*": {
     "description": "AI chat - requires approved user",
     "ANY": ["admin", "user"]
   },

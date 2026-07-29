@@ -30,6 +30,7 @@ from .admin import (
 )
 from .audit import AuditLogListResponse, AuditLogResponse, AuditStatsResponse
 from .auth import PendingStatusResponse, UserRegistration, UserRegistrationResponse
+from .chat import ChatHistoryResponse, ChatMessageCreate, ChatMessageResponse
 from .insight import (
     InsightActionResponse,
     InsightBase,
@@ -138,4 +139,8 @@ __all__ = [
     "InsightFilters",
     "InsightActionResponse",
     "InsightGenerateResponse",
+    # Chat schemas
+    "ChatMessageCreate",
+    "ChatMessageResponse",
+    "ChatHistoryResponse",
 ]

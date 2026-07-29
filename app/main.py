@@ -37,6 +37,7 @@ from .core.storage import GCSStorage, LocalStorage, StorageBackend
 from .middleware import AuditMiddleware
 from .routers import (
     admin_router,
+    ai_manager_router,
     audit_router,
     auth_router,
     examples_router,
@@ -162,6 +163,9 @@ api_router.include_router(policies_router)
 
 # AI Insights (visibility layer)
 api_router.include_router(insights_router)
+
+# AI Manager (chat)
+api_router.include_router(ai_manager_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)
