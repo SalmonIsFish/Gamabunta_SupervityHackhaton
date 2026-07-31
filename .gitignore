@@ -16,6 +16,11 @@ dist/
 .env.*.local
 # Claude Code per-developer overrides — never commit
 .claude/settings.local.json
+
+# Hackathon dataset — Supervity's Round 2 guide states it "may not be
+# redistributed"; this repo's origin remote is the public GitHub repo
+# judges access. Seed it into Supabase locally instead of committing it.
+Operations_Case_Study/
 downloads/
 eggs/
 .eggs/

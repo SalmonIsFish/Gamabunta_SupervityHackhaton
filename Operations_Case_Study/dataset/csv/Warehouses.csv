@@ -1,7 +1,0 @@
-id,warehouse_code,name,country,city,created_at
-WH100,MY01,Shah Alam DC,MY,Shah Alam,2024-11-18T00:00:00+08:00
-WH101,MY02,Johor Bahru DC,MY,Johor Bahru,2023-11-29T00:00:00+08:00
-WH102,IN01,Mumbai DC,IN,Mumbai,2023-05-05T00:00:00+08:00
-WH103,SG01,Jurong DC,SG,Jurong,2023-05-07T00:00:00+08:00
-WH104,TH01,Laem Chabang DC,TH,Laem Chabang,2024-11-05T00:00:00+08:00
-WH105,CN01,Shanghai DC,CN,Shanghai,2025-02-04T00:00:00+08:00
