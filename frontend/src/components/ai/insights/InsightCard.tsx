@@ -1,31 +1,32 @@
 'use client'
 
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Icons } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 
-export type InsightSeverity = 'critical' | 'high' | 'warning' | 'medium' | 'low' | 'info'
-export type InsightType = 'pattern' | 'anomaly' | 'recommendation' | 'trend' | 'alert'
+// Mirrors app/models/insight.py's InsightSeverity/InsightType/InsightStatus exactly —
+// the backend only ever returns these three severities and three types.
+export type InsightSeverity = 'critical' | 'warning' | 'info'
+export type InsightType = 'pattern' | 'anomaly' | 'recommendation'
+export type InsightStatus = 'new' | 'reviewed' | 'actioned' | 'dismissed'
 
 export interface Insight {
   id: string
-  type: InsightType
+  insight_type: InsightType
   severity: InsightSeverity
   title: string
-  description: string
-  data?: Record<string, unknown>
-  suggested_action?: string
-  action_type?: string
-  confidence?: number
+  description: string | null
+  extra_data?: Record<string, unknown> | null
+  suggested_action?: string | null
+  confidence?: number | null
+  status: InsightStatus
+  generated_by?: string | null
   created_at: string
-  is_dismissed?: boolean
-  is_actioned?: boolean
-  is_demo?: boolean
 }
 
 interface InsightCardProps {
   insight: Insight
-  onAction?: (insight: Insight) => void
   onDismiss?: (id: string) => void
 }
 
@@ -45,16 +46,6 @@ export function getSeverityConfig(severity: InsightSeverity) {
       badge: 'bg-red-100 text-red-700',
       textColor: 'text-red-700',
     },
-    high: {
-      icon: Icons.alertCircle,
-      bg: 'bg-red-50/70',
-      border: 'border-red-200',
-      accent: 'border-l-red-400',
-      iconBg: 'bg-red-100',
-      iconColor: 'text-red-500',
-      badge: 'bg-red-100 text-red-600',
-      textColor: 'text-red-600',
-    },
     warning: {
       icon: Icons.alertTriangle,
       bg: 'bg-amber-50',
@@ -64,26 +55,6 @@ export function getSeverityConfig(severity: InsightSeverity) {
       iconColor: 'text-amber-600',
       badge: 'bg-amber-100 text-amber-700',
       textColor: 'text-amber-700',
-    },
-    medium: {
-      icon: Icons.alertTriangle,
-      bg: 'bg-amber-50/70',
-      border: 'border-amber-200',
-      accent: 'border-l-amber-400',
-      iconBg: 'bg-amber-100',
-      iconColor: 'text-amber-500',
-      badge: 'bg-amber-100 text-amber-600',
-      textColor: 'text-amber-600',
-    },
-    low: {
-      icon: Icons.info,
-      bg: 'bg-sky-50/70',
-      border: 'border-sky-200',
-      accent: 'border-l-sky-400',
-      iconBg: 'bg-sky-100',
-      iconColor: 'text-sky-500',
-      badge: 'bg-sky-100 text-sky-600',
-      textColor: 'text-sky-600',
     },
     info: {
       icon: Icons.info,
@@ -103,21 +74,23 @@ const typeConfig: Record<InsightType, { label: string; icon: typeof Icons.activi
   pattern: { label: 'Pattern', icon: Icons.activity },
   anomaly: { label: 'Anomaly', icon: Icons.alertTriangle },
   recommendation: { label: 'Recommendation', icon: Icons.lightbulb },
-  trend: { label: 'Trend', icon: Icons.trendingUp },
-  alert: { label: 'Alert', icon: Icons.bell },
 }
 
-export function InsightCard({ insight, onAction, onDismiss }: InsightCardProps) {
+export function InsightCard({ insight, onDismiss }: InsightCardProps) {
+  const [showRaw, setShowRaw] = useState(false)
   const severity = getSeverityConfig(insight.severity)
-  const type = typeConfig[insight.type] || typeConfig.recommendation
+  const type = typeConfig[insight.insight_type] || typeConfig.recommendation
   const SeverityIcon = severity.icon
+  const isDismissed = insight.status === 'dismissed'
+  const hasExtraData = !!insight.extra_data && Object.keys(insight.extra_data).length > 0
 
   return (
     <div className={cn(
       'rounded-xl border p-4',
       'transition-all duration-200 hover:shadow-soft',
       severity.bg,
-      severity.border
+      severity.border,
+      isDismissed && 'opacity-50'
     )}>
       <div className="flex gap-4">
         {/* Icon */}
@@ -132,7 +105,7 @@ export function InsightCard({ insight, onAction, onDismiss }: InsightCardProps) 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="font-semibold text-foreground">{insight.title}</h4>
                 <span className={cn(
                   'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
@@ -140,9 +113,14 @@ export function InsightCard({ insight, onAction, onDismiss }: InsightCardProps) 
                 )}>
                   {insight.severity}
                 </span>
-                {insight.confidence && (
+                {insight.confidence != null && (
                   <span className="text-xs text-muted-foreground">
                     {Math.round(insight.confidence * 100)}% confident
+                  </span>
+                )}
+                {isDismissed && (
+                  <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase bg-gray-100 text-gray-500">
+                    Dismissed
                   </span>
                 )}
               </div>
@@ -153,55 +131,58 @@ export function InsightCard({ insight, onAction, onDismiss }: InsightCardProps) 
                 <span className="text-xs text-muted-foreground">
                   {new Date(insight.created_at).toLocaleDateString()}
                 </span>
+                {insight.generated_by && (
+                  <>
+                    <span className="text-xs text-muted-foreground">•</span>
+                    <span className="text-xs text-muted-foreground">{insight.generated_by}</span>
+                  </>
+                )}
               </div>
             </div>
-            
-            {onDismiss && (
+
+            {onDismiss && !isDismissed && (
               <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => onDismiss(insight.id)}
                 className="text-muted-foreground hover:text-foreground"
+                title="Dismiss"
               >
                 <Icons.close className="h-4 w-4" />
               </Button>
             )}
           </div>
 
-          <p className="mt-2 text-sm text-muted-foreground">
-            {insight.description}
-          </p>
+          {insight.description && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {insight.description}
+            </p>
+          )}
 
-          {/* Data preview */}
-          {insight.data && Object.keys(insight.data).length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Object.entries(insight.data).slice(0, 3).map(([key, value]) => (
-                <span
-                  key={key}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1',
-                    'bg-white/50 text-xs font-medium text-foreground'
-                  )}
-                >
-                  <span className="text-muted-foreground">{key.replace(/_/g, ' ')}:</span>
-                  <span className="font-semibold">{String(value)}</span>
-                </span>
-              ))}
+          {/* Suggested action — the "actionable next step," shown as text since
+              the backend gives no structured routing target to auto-click into */}
+          {insight.suggested_action && (
+            <div className={cn('mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-sm', 'bg-white/60', severity.textColor)}>
+              <Icons.arrowRight className="h-4 w-4 flex-shrink-0 mt-0.5" strokeWidth={1.5} />
+              <span>{insight.suggested_action}</span>
             </div>
           )}
 
-          {/* Suggested Action */}
-          {insight.suggested_action && (
-            <div className="mt-4 flex items-center gap-3">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => onAction?.(insight)}
+          {/* Raw numbers behind the claim — auditability */}
+          {hasExtraData && (
+            <div className="mt-3">
+              <button
+                onClick={() => setShowRaw((v) => !v)}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
               >
-                <Icons.zap className="mr-1.5 h-3.5 w-3.5" strokeWidth={1.5} />
-                {insight.suggested_action.slice(0, 30)}
-                {insight.suggested_action.length > 30 ? '...' : ''}
-              </Button>
+                <Icons.chevronRight className={cn('h-3 w-3 transition-transform', showRaw && 'rotate-90')} />
+                {showRaw ? 'Hide' : 'Show'} the numbers behind this
+              </button>
+              {showRaw && (
+                <pre className="mt-2 rounded-lg bg-gray-900 text-gray-100 p-3 text-xs overflow-x-auto">
+                  {JSON.stringify(insight.extra_data, null, 2)}
+                </pre>
+              )}
             </div>
           )}
         </div>
