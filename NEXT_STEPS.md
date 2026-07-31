@@ -26,10 +26,9 @@ Policies 20 / Insights 15 / Command Center & live demo 15, +10 bonus.
       and won't pick up `.env` changes) picked them up, and `POST /api/ai/insights/generate?domain=procurement`
       returned 5 real operational insights (delay patterns for suppliers 3032/3024, 48 at-risk POs,
       sole-source exposure, 3 contracts expiring soon) confirmed against the live data on 2026-07-31.
-      **Follow-up:** the key in `SUPABASE_SERVICE_KEY` is actually Supabase's new-format `sb_publi...`
-      (publishable/anon) key, not `sb_secret_...` (service_role) — works today because RLS isn't locked
-      down on these tables, but swap it for the real service_role/secret key before the demo so a later
-      RLS change can't silently start returning empty data.
+      **Follow-up done:** `SUPABASE_SERVICE_KEY` was initially the `sb_publi...` (publishable/anon) key —
+      swapped for the real `sb_secret_...` (service_role) key on 2026-07-31, re-verified live (container
+      recreated with `up -d`, `suppliers` select still returns real rows).
 - [x] `SUPERVITY_AUTO_API_KEY`, `SUPERVITY_AUTO_ORG_KEY`, `SUPERVITY_AUTO_BASE_URL`,
       `SUPERVITY_AUTO_ORCHESTRATOR_WORKFLOW_ID` all added to `.env` — confirmed loaded into the backend
       container. Still unused by any code (Auto token itself remains rate-limited) — the next step once
