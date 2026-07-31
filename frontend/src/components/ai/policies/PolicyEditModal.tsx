@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/ui/icons'
 import { apiClient } from '@/lib/api-client'
+import { toBackendPayload, syncActiveStatus, fromBackendPolicy, type BackendPolicy } from '@/lib/policy-adapter'
 import { StructuredBuilder } from './StructuredBuilder'
 import type { Policy, PolicyDSL } from './PolicyCard'
 
@@ -69,7 +70,9 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
     dsl: null,
   })
   const [isTranslating, setIsTranslating] = useState(false)
+  const [translateError, setTranslateError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [tagInput, setTagInput] = useState('')
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic')
 
@@ -128,6 +131,7 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
     if (!formData.natural_language.trim()) return
 
     setIsTranslating(true)
+    setTranslateError(null)
     try {
       const result = await apiClient.post<{ dsl: PolicyDSL; confidence: number }>('/api/ai/policies/translate', {
         natural_language: formData.natural_language,
@@ -135,7 +139,13 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
       handleInputChange('dsl', result.dsl)
       handleInputChange('policy_type', 'logical')
     } catch (error) {
-      console.error('Translation failed:', error)
+      // This endpoint needs an LLM key that isn't configured yet (see
+      // NEXT_STEPS.md) — fails visibly rather than silently doing nothing.
+      setTranslateError(
+        error instanceof Error
+          ? error.message
+          : 'AI rule generation is unavailable — use the visual builder below instead.'
+      )
     } finally {
       setIsTranslating(false)
     }
@@ -157,31 +167,35 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
     if (!formData.name.trim() || !formData.natural_language.trim()) return
 
     setIsSaving(true)
+    setSaveError(null)
     try {
-      const payload = {
-        name: formData.name,
-        description: formData.description,
-        natural_language: formData.natural_language,
-        policy_type: formData.policy_type,
-        refined_instruction: formData.policy_type === 'natural_language' ? formData.refined_instruction : null,
-        entity_name: formData.entity_name || null,
-        priority: formData.priority,
-        tags: formData.tags,
-        is_active: formData.is_active,
-        dsl: formData.policy_type === 'logical' ? formData.dsl : null,
-      }
+      const payload = toBackendPayload(
+        {
+          name: formData.name,
+          description: formData.description,
+          natural_language: formData.natural_language,
+          policy_type: formData.policy_type,
+          refined_instruction: formData.policy_type === 'natural_language' ? formData.refined_instruction : null,
+          entity_name: formData.entity_name || null,
+          priority: formData.priority,
+          tags: formData.tags,
+          dsl: formData.policy_type === 'logical' ? formData.dsl : null,
+        },
+        // Preserve the existing policy's domain on edit; new policies from
+        // this modal fall back to the adapter's default.
+        policy?.domain ?? undefined
+      )
 
-      let savedPolicy: Policy
-      if (policy) {
-        savedPolicy = await apiClient.patch<Policy>(`/api/ai/policies/${policy.id}`, payload)
-      } else {
-        savedPolicy = await apiClient.post<Policy>('/api/ai/policies', payload)
-      }
-      
-      onSave(savedPolicy)
+      const saved: BackendPolicy = policy
+        ? await apiClient.put<BackendPolicy>(`/api/ai/policies/${policy.id}`, payload)
+        : await apiClient.post<BackendPolicy>('/api/ai/policies', payload)
+
+      await syncActiveStatus(saved.id, saved.status, formData.is_active)
+
+      onSave(fromBackendPolicy({ ...saved, status: formData.is_active ? 'active' : saved.status }))
       onClose()
     } catch (error) {
-      console.error('Save failed:', error)
+      setSaveError(error instanceof Error ? error.message : 'Failed to save this policy.')
     } finally {
       setIsSaving(false)
     }
@@ -382,29 +396,37 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
 
                 {/* Analyze Button (for logical type) */}
                 {formData.policy_type === 'logical' && (
-                  <div className="flex items-center gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={handleTranslate}
-                      disabled={!formData.natural_language.trim() || isTranslating}
-                    >
-                      {isTranslating ? (
-                        <>
-                          <Icons.loader className="h-4 w-4 mr-2 animate-spin" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <Icons.sparkles className="h-4 w-4 mr-2" />
-                          Generate Rules with AI
-                        </>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={handleTranslate}
+                        disabled={!formData.natural_language.trim() || isTranslating}
+                      >
+                        {isTranslating ? (
+                          <>
+                            <Icons.loader className="h-4 w-4 mr-2 animate-spin" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Icons.sparkles className="h-4 w-4 mr-2" />
+                            Generate Rules with AI
+                          </>
+                        )}
+                      </Button>
+                      {formData.dsl && (
+                        <span className="text-sm text-emerald-600 flex items-center gap-1">
+                          <Icons.check className="h-4 w-4" />
+                          Rules generated
+                        </span>
                       )}
-                    </Button>
-                    {formData.dsl && (
-                      <span className="text-sm text-emerald-600 flex items-center gap-1">
-                        <Icons.check className="h-4 w-4" />
-                        Rules generated
-                      </span>
+                    </div>
+                    {translateError && (
+                      <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                        <Icons.alertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                        {translateError}
+                      </p>
                     )}
                   </div>
                 )}
@@ -591,7 +613,16 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+            {saveError ? (
+              <p className="text-xs text-red-600 flex items-center gap-1.5">
+                <Icons.alertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                {saveError}
+              </p>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
@@ -612,6 +643,7 @@ export function PolicyEditModal({ policy, isOpen, onClose, onSave }: PolicyEditM
                 </>
               )}
             </Button>
+            </div>
           </div>
         </motion.div>
       </motion.div>

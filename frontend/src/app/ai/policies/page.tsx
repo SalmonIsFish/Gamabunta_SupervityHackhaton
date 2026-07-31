@@ -1,120 +1,28 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
+import { apiClient } from '@/lib/api-client'
+import {
+  fromBackendPolicy,
+  toBackendPayload,
+  syncActiveStatus,
+  deletePolicySafely,
+  type BackendPolicy,
+  type BackendPolicyListResponse,
+} from '@/lib/policy-adapter'
 import { PolicyCard, type Policy } from '@/components/ai/policies/PolicyCard'
 import { PolicyDetailModal } from '@/components/ai/policies/PolicyDetailModal'
 import { PolicyEditModal } from '@/components/ai/policies/PolicyEditModal'
 import { CreateWithAI } from '@/components/ai/policies/CreateWithAI'
 import { PermissionMatrixTab } from '@/components/ai/policies/PermissionMatrixTab'
 import { StructuredBuilder } from '@/components/ai/policies/StructuredBuilder'
-
-// ============================================================================
-// Demo Data — Replace with your own API integration
-// ============================================================================
-
-const DEMO_POLICIES: Policy[] = [
-  {
-    id: 'demo-001',
-    name: 'Auto-Approve Low Value Invoices',
-    description: 'Automatically approve invoices under $500 from approved vendors.',
-    natural_language: 'If an invoice total is less than $500 and the vendor is in our approved vendor list, automatically approve for payment without requiring manual review.',
-    summary: 'Auto-approves low-value invoices from trusted vendors to reduce manual workload.',
-    policy_type: 'logical',
-    dsl: { conditions: [{ field: 'amount', operator: 'less_than', value: '500' }, { field: 'vendor_status', operator: 'equals', value: 'approved' }], actions: [{ type: 'auto_approve' }], match_mode: 'all' },
-    refined_instruction: null,
-    ai_instruction: 'WHEN amount < 500 AND vendor_status = approved THEN auto_approve',
-    entity_name: 'invoice',
-    is_active: true,
-    priority: 10,
-    tags: ['finance', 'auto-approve', 'demo'],
-    execution_count: 120,
-    last_executed_at: new Date().toISOString(),
-    created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 2 * 3600000).toISOString(),
-  },
-  {
-    id: 'demo-002',
-    name: 'CFO Approval for Large Transactions',
-    description: 'Require CFO approval for any transaction exceeding $50,000.',
-    natural_language: 'Any transaction or purchase order exceeding $50,000 must be reviewed and approved by the CFO before processing.',
-    summary: 'Enforces executive approval on high-value transactions.',
-    policy_type: 'logical',
-    dsl: { conditions: [{ field: 'amount', operator: 'greater_than', value: '50000' }], actions: [{ type: 'require_approval', value: 'CFO' }], match_mode: 'all' },
-    refined_instruction: null,
-    ai_instruction: 'WHEN amount > 50000 THEN require_approval(CFO)',
-    entity_name: 'transaction',
-    is_active: true,
-    priority: 5,
-    tags: ['finance', 'escalation', 'demo'],
-    execution_count: 45,
-    last_executed_at: new Date(Date.now() - 3600000).toISOString(),
-    created_at: new Date(Date.now() - 25 * 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 4 * 3600000).toISOString(),
-  },
-  {
-    id: 'demo-003',
-    name: 'New Employee Onboarding Checklist',
-    description: 'Automatically assign onboarding steps when a new employee is created.',
-    natural_language: 'When a new employee record is created, automatically assign the standard onboarding checklist, notify their manager, and schedule the Day 1 orientation meeting.',
-    summary: 'Triggers automated onboarding workflow for new hires.',
-    policy_type: 'natural_language',
-    dsl: null,
-    refined_instruction: 'On new employee creation: assign onboarding checklist, notify manager, schedule Day 1 orientation.',
-    ai_instruction: 'On new employee creation: assign onboarding checklist, notify manager, schedule Day 1 orientation.',
-    entity_name: 'employee',
-    is_active: true,
-    priority: 15,
-    tags: ['hr', 'onboarding', 'demo'],
-    execution_count: 30,
-    last_executed_at: new Date(Date.now() - 2 * 3600000).toISOString(),
-    created_at: new Date(Date.now() - 20 * 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-  },
-  {
-    id: 'demo-004',
-    name: 'Suspicious Login Alert',
-    description: 'Flag and alert on logins from new devices or unusual locations.',
-    natural_language: 'If a user logs in from a new device or from a country they have never logged in from before, flag the session for security review and send an alert to the user email.',
-    summary: 'Detects and alerts on anomalous login patterns for security.',
-    policy_type: 'natural_language',
-    dsl: null,
-    refined_instruction: 'On login: if device is new OR country is new, flag session for review, send email alert.',
-    ai_instruction: 'On login: if device is new OR country is new, flag session for review, send email alert.',
-    entity_name: 'session',
-    is_active: true,
-    priority: 1,
-    tags: ['security', 'alerting', 'demo'],
-    execution_count: 85,
-    last_executed_at: new Date(Date.now() - 30 * 60000).toISOString(),
-    created_at: new Date(Date.now() - 15 * 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 8 * 3600000).toISOString(),
-  },
-  {
-    id: 'demo-005',
-    name: 'Enterprise Ticket Escalation',
-    description: 'Auto-escalate support tickets from high-value customers.',
-    natural_language: 'When a support ticket is created by an enterprise-tier customer or a customer with annual contract value over $100K, automatically escalate to Tier 2 support and set priority to high.',
-    summary: 'Ensures enterprise customers receive priority support.',
-    policy_type: 'logical',
-    dsl: { conditions: [{ field: 'customer_tier', operator: 'equals', value: 'enterprise' }], actions: [{ type: 'escalate', value: 'tier_2' }, { type: 'set_priority', value: 'high' }], match_mode: 'any' },
-    refined_instruction: null,
-    ai_instruction: 'WHEN customer_tier = enterprise OR contract_value > 100000 THEN escalate(tier_2), set_priority(high)',
-    entity_name: 'ticket',
-    is_active: false,
-    priority: 8,
-    tags: ['support', 'escalation', 'demo'],
-    execution_count: 15,
-    last_executed_at: new Date(Date.now() - 12 * 3600000).toISOString(),
-    created_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-    updated_at: new Date(Date.now() - 10 * 3600000).toISOString(),
-  },
-]
 
 // ============================================================================
 // Animation Variants
@@ -156,7 +64,7 @@ const TABS = [
 // Page Component
 // ============================================================================
 
-export default function AIPoliciesPage() {
+function PoliciesPageContent() {
   // State
   const [policies, setPolicies] = useState<Policy[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -179,21 +87,36 @@ export default function AIPoliciesPage() {
   const [isSavingStructured, setIsSavingStructured] = useState(false)
 
   // ============================================================================
-  // Data — Loaded from demo data (replace with API fetch)
+  // Data
   // ============================================================================
 
-  const loadPolicies = useCallback(() => {
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const loadPolicies = useCallback(async () => {
     setIsLoading(true)
-    // Simulate loading — replace with real API call
-    setTimeout(() => {
-      setPolicies(DEMO_POLICIES)
+    setLoadError(null)
+    try {
+      const data = await apiClient.get<BackendPolicyListResponse>('/api/ai/policies?page_size=100')
+      setPolicies(data.items.map(fromBackendPolicy))
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load policies.')
+    } finally {
       setIsLoading(false)
-    }, 300)
+    }
   }, [])
 
   useEffect(() => {
     loadPolicies()
   }, [loadPolicies])
+
+  // Deep link from AI Insights ("create a policy from this insight")
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'create-ai' || tab === 'structured' || tab === 'matrix' || tab === 'policies') {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
 
   // ============================================================================
   // Policy Actions
@@ -213,48 +136,53 @@ export default function AIPoliciesPage() {
     loadPolicies()
   }, [loadPolicies])
 
-  const togglePolicyStatus = useCallback(async (id: string, _isActive: boolean) => {
-    // Toggle locally (replace with API call)
-    setPolicies(prev => prev.map(p => p.id === id ? { ...p, is_active: !p.is_active } : p))
-  }, [])
+  const togglePolicyStatus = useCallback(
+    async (id: string, isActive: boolean) => {
+      const policy = policies.find((p) => p.id === id)
+      if (!policy) return
+      await syncActiveStatus(Number(id), policy.is_active ? 'active' : 'paused', !isActive)
+      await loadPolicies()
+    },
+    [policies, loadPolicies]
+  )
 
-  const deletePolicy = useCallback(async (id: string) => {
-    // Delete locally (replace with API call)
-    setPolicies(prev => prev.filter(p => p.id !== id))
-  }, [])
+  const deletePolicy = useCallback(
+    async (id: string) => {
+      await deletePolicySafely(id)
+      await loadPolicies()
+    },
+    [loadPolicies]
+  )
 
   const handlePolicyCreate = async (policyData: {
     name: string
     description: string
     naturalLanguage: string
     policyType: 'logical' | 'natural_language'
-    dsl: unknown
+    dsl: Policy['dsl']
     refinedInstruction: string | null
     entityName: string | null
     tags: string[]
     priority: number
   }) => {
-    // Add locally (replace with API call)
-    const newPolicy: Policy = {
-      id: `user-${Date.now()}`,
-      name: policyData.name,
-      description: policyData.description,
-      natural_language: policyData.naturalLanguage,
-      summary: policyData.description,
-      policy_type: policyData.policyType,
-      dsl: policyData.dsl as Policy['dsl'],
-      refined_instruction: policyData.refinedInstruction,
-      ai_instruction: policyData.naturalLanguage,
-      entity_name: policyData.entityName,
-      is_active: true,
-      priority: policyData.priority,
-      tags: policyData.tags,
-      execution_count: 0,
-      last_executed_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-    setPolicies(prev => [newPolicy, ...prev])
+    const created = await apiClient.post<BackendPolicy>(
+      '/api/ai/policies',
+      toBackendPayload({
+        name: policyData.name,
+        description: policyData.description,
+        natural_language: policyData.naturalLanguage,
+        policy_type: policyData.policyType,
+        refined_instruction: policyData.refinedInstruction,
+        entity_name: policyData.entityName,
+        priority: policyData.priority,
+        tags: policyData.tags,
+        dsl: policyData.dsl,
+      })
+    )
+    // New policies from this UI are meant to be live immediately, matching
+    // the "make policies genuinely dynamic" brief — activate right after create.
+    await syncActiveStatus(created.id, created.status, true)
+    await loadPolicies()
     setActiveTab('policies')
   }
 
@@ -471,6 +399,13 @@ export default function AIPoliciesPage() {
               <div className="flex items-center justify-center py-16">
                 <Icons.loader className="h-8 w-8 animate-spin text-brand-cornflower" />
               </div>
+            ) : loadError ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                  <Icons.alertCircle className="h-8 w-8 text-red-500 mb-3" />
+                  <p className="text-sm text-red-600">{loadError}</p>
+                </CardContent>
+              </Card>
             ) : filteredPolicies.length === 0 ? (
               <Card className="relative overflow-hidden">
                 <CardWatermark opacity={3} scale={1} />
@@ -656,5 +591,19 @@ export default function AIPoliciesPage() {
         onSave={handleSavePolicy}
       />
     </motion.div>
+  )
+}
+
+export default function AIPoliciesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-16">
+          <Icons.loader className="h-8 w-8 animate-spin text-brand-cornflower" />
+        </div>
+      }
+    >
+      <PoliciesPageContent />
+    </Suspense>
   )
 }

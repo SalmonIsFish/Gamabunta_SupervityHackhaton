@@ -47,6 +47,10 @@ export interface Policy {
   updated_at: string
   execution_count: number
   last_executed_at: string | null
+  /** Backend evaluation domain (e.g. "procurement") — carried through so an
+   * edit doesn't silently reassign which entity_data submissions this
+   * policy applies to. Not shown as its own UI field yet. */
+  domain?: string | null
 }
 
 interface PolicyCardProps {
