@@ -29,8 +29,13 @@ Policies 20 / Insights 15 / Command Center & live demo 15, +10 bonus.
       Insights pass (delay patterns, POs at risk, demand anomalies, single-source exposure, contract expiry)
       with zero further code changes.
 - [ ] Once Auto's rate limit resets: generate/confirm a Workflow API key at `auto.supervity.ai/u/api-keys`
-      and add it to `.env` too (name TBD when you wire step 3 below — check `auto.supervity.ai/docs` for
-      the exact env var / auth header it expects).
+      and add it to `.env` under `SUPERVITY_AUTO_API_KEY` (see `.env.example` for the full set of vars and
+      why). Per `auto.supervity.ai/docs/api-docs`, running a workflow is `POST /api/v1/workflow-runs/execute`
+      against the **same host as the dashboard** (`https://auto.supervity.ai`) — there's no separate
+      per-workflow URL, the target workflow is selected by `workflowId` in the multipart request body. Auth
+      needs three headers, not just the bearer token: `Authorization: Bearer <key>`, `x-source: external`
+      (required for Custom API Keys), and `x-active-org: <org-key>`. The Master Orchestrator's `workflowId`
+      is already known (`019f797b-4a41-7000-8eb3-89e6cb784c04`, from the Round 1 export's `rootWorkflowId`).
 - [ ] Do **not** `git add Operations_Case_Study/` — the dataset may not be redistributed per the Round 2
       guide, and `origin` is a public repo judges will access.
 
