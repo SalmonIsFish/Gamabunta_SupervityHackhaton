@@ -17,25 +17,27 @@ Policies 20 / Insights 15 / Command Center & live demo 15, +10 bonus.
 | Command Center wired to live agent activity | **Backend ready, frontend not wired.** Policies/Workbench/Insights endpoints are real; the pages still render `DEMO_*` arrays. |
 | 3+ active AI Policies, no-code editable, logged | **Done.** 4 seeded active policies (`scripts/seed_db.py`), every evaluation audit-logged via `policy_engine.evaluate()`. |
 | Live human loop via Workbench | **Backend ready.** `POST /api/workbench` (raise) + `POST /api/workbench/{id}/resolve` both work and are tested. Needs a real Operator actually calling it. |
-| 3+ live integrations, 2 categories, healthy in Data Manager | **Not started.** Supabase (system of record) not yet seeded; Slack/Outlook (channel) exist in the Round 1 Auto workflows but Data Manager page doesn't reflect any of it. |
+| 3+ live integrations, 2 categories, healthy in Data Manager | **Supabase connected and verified** (system of record — see below). Slack/Outlook (channel) exist in the Round 1 Auto workflows but the Data Manager *page* still doesn't show any of this. |
 
 ## 1. Get data flowing (blocks almost everything else)
 
-- [ ] Create/confirm the Supabase project, seed all 14 `Operations_Case_Study/dataset/csv/` tables into it
-      (matches the Round 1 Auto workflows' existing pattern — they already query `inventory_positions` and
-      `contracts` there).
-- [ ] Add `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (the **service_role** key, not `anon`) to your local
-      `.env` — see `.env.example` for the new section. This immediately lights up the new operational
-      Insights pass (delay patterns, POs at risk, demand anomalies, single-source exposure, contract expiry)
-      with zero further code changes.
-- [ ] Once Auto's rate limit resets: generate/confirm a Workflow API key at `auto.supervity.ai/u/api-keys`
-      and add it to `.env` under `SUPERVITY_AUTO_API_KEY` (see `.env.example` for the full set of vars and
-      why). Per `auto.supervity.ai/docs/api-docs`, running a workflow is `POST /api/v1/workflow-runs/execute`
-      against the **same host as the dashboard** (`https://auto.supervity.ai`) — there's no separate
-      per-workflow URL, the target workflow is selected by `workflowId` in the multipart request body. Auth
-      needs three headers, not just the bearer token: `Authorization: Bearer <key>`, `x-source: external`
-      (required for Custom API Keys), and `x-active-org: <org-key>`. The Master Orchestrator's `workflowId`
-      is already known (`019f797b-4a41-7000-8eb3-89e6cb784c04`, from the Round 1 export's `rootWorkflowId`).
+- [x] Supabase project seeded and connected — `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` are in `.env`,
+      `docker compose up -d backend` (not `restart` — that reuses the container's original env snapshot
+      and won't pick up `.env` changes) picked them up, and `POST /api/ai/insights/generate?domain=procurement`
+      returned 5 real operational insights (delay patterns for suppliers 3032/3024, 48 at-risk POs,
+      sole-source exposure, 3 contracts expiring soon) confirmed against the live data on 2026-07-31.
+      **Follow-up:** the key in `SUPABASE_SERVICE_KEY` is actually Supabase's new-format `sb_publi...`
+      (publishable/anon) key, not `sb_secret_...` (service_role) — works today because RLS isn't locked
+      down on these tables, but swap it for the real service_role/secret key before the demo so a later
+      RLS change can't silently start returning empty data.
+- [x] `SUPERVITY_AUTO_API_KEY`, `SUPERVITY_AUTO_ORG_KEY`, `SUPERVITY_AUTO_BASE_URL`,
+      `SUPERVITY_AUTO_ORCHESTRATOR_WORKFLOW_ID` all added to `.env` — confirmed loaded into the backend
+      container. Still unused by any code (Auto token itself remains rate-limited) — the next step once
+      the limit resets is wiring `ai_manager._dispatch()` to actually call
+      `POST /api/v1/workflow-runs/execute` with these. Per `auto.supervity.ai/docs/api-docs`: same host as
+      the dashboard, no separate per-workflow URL — the target workflow is selected by `workflowId` in the
+      multipart request body. Auth needs three headers, not just the bearer token: `Authorization: Bearer
+      <key>`, `x-source: external` (required for Custom API Keys), and `x-active-org: <org-key>`.
 - [ ] Do **not** `git add Operations_Case_Study/` — the dataset may not be redistributed per the Round 2
       guide, and `origin` is a public repo judges will access.
 
