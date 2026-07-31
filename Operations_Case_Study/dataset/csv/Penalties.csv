@@ -1,0 +1,15 @@
+id,contract_id,penalty_type,penalty_amount,currency,escalation_threshold,escalation_terms,created_at
+PEN-001,7003,volume_rebate_void,0,MYR,any expedite without VP sign-off,Breach voids volume rebate (~RM85k value); requires VP Procurement sign-off before dispatch,2026-03-16T00:00:00+08:00
+PEN-002,7011,fixed_breach_fee,120000,MYR,any expedite,"Early-termination penalty clause 7.3 - RM120,000 flat on expedite breach",2026-02-03T00:00:00+08:00
+PEN-003,7045,fixed_breach_fee,95000,MYR,any expedite,"Early-termination penalty clause 9.1 - RM95,000 on expedite breach",2026-02-20T00:00:00+08:00
+PEN-004,7049,fixed_breach_fee,95000,MYR,any expedite,"Early-termination penalty clause 9.1 - RM95,000 on expedite breach",2026-06-17T00:00:00+08:00
+PEN-005,7050,per_breach_surcharge,40000,MYR,expedite beyond 2 shipments/qtr,"Clause 5.4 surcharge RM40,000 per breach",2026-06-07T00:00:00+08:00
+PEN-006,7051,fixed_breach_fee,95000,MYR,any expedite,"Early-termination penalty clause 9.1 - RM95,000 on expedite breach",2025-11-10T00:00:00+08:00
+PEN-007,7056,volume_rebate_void,0,MYR,any expedite without VP sign-off,Breach voids volume rebate; VP sign-off required,2025-11-02T00:00:00+08:00
+PEN-008,7058,fixed_breach_fee,95000,MYR,any expedite,"Early-termination penalty clause 9.1 - RM95,000 on expedite breach",2026-06-17T00:00:00+08:00
+PEN-009,7059,volume_rebate_void,0,MYR,any expedite without VP sign-off,Breach voids volume rebate; VP sign-off required,2026-06-17T00:00:00+08:00
+PEN-010,7061,volume_rebate_void,0,MYR,any expedite without VP sign-off,Breach voids volume rebate; VP sign-off required,2026-06-12T00:00:00+08:00
+PEN-011,7063,per_breach_surcharge,40000,MYR,expedite beyond 2 shipments/qtr,"Clause 5.4 surcharge RM40,000 per breach",2026-05-25T00:00:00+08:00
+PEN-012,7064,fixed_breach_fee,95000,MYR,any expedite,"Early-termination penalty clause 9.1 - RM95,000 on expedite breach",2026-03-13T00:00:00+08:00
+PEN-013,7068,per_breach_surcharge,40000,MYR,expedite beyond 2 shipments/qtr,"Clause 5.4 surcharge RM40,000 per breach",2026-04-09T00:00:00+08:00
+PEN-014,7069,per_breach_surcharge,40000,MYR,expedite beyond 2 shipments/qtr,"Clause 5.4 surcharge RM40,000 per breach",2026-06-04T00:00:00+08:00

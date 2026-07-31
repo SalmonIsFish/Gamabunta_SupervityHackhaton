@@ -1,0 +1,27 @@
+id,parent_supplier_id,depends_on_supplier_id,parent_tier,depends_on_tier,component,criticality,created_at
+ST-001,3007,3020,tier-1,tier-2,Rubber compound feedstock,critical,2026-02-03T00:00:00+08:00
+ST-002,3016,3020,tier-1,tier-2,Rubber compound feedstock,critical,2026-02-18T00:00:00+08:00
+ST-003,3024,3020,tier-1,tier-2,Rubber compound feedstock,high,2025-01-07T00:00:00+08:00
+ST-004,3020,3057,tier-2,tier-3,Raw latex,high,2024-08-17T00:00:00+08:00
+ST-005,3059,3036,tier-1,tier-2,Packaging film,high,2024-11-06T00:00:00+08:00
+ST-006,3010,3049,tier-1,tier-2,Resin,medium,2026-01-22T00:00:00+08:00
+ST-007,3031,3033,tier-1,tier-2,Subassembly,medium,2024-11-08T00:00:00+08:00
+ST-008,3016,3003,tier-1,tier-2,Resin,medium,2025-08-25T00:00:00+08:00
+ST-009,3062,3029,tier-1,tier-2,Casting,high,2024-12-12T00:00:00+08:00
+ST-010,3024,3071,tier-1,tier-3,Packaging film,medium,2025-10-06T00:00:00+08:00
+ST-011,3048,3033,tier-1,tier-2,Wire stock,low,2026-01-22T00:00:00+08:00
+ST-012,3026,3071,tier-1,tier-3,Packaging film,high,2026-04-11T00:00:00+08:00
+ST-013,3024,3054,tier-1,tier-2,Casting,medium,2024-10-14T00:00:00+08:00
+ST-014,3006,3043,tier-1,tier-2,Packaging film,low,2026-02-09T00:00:00+08:00
+ST-015,3058,3038,tier-1,tier-2,Packaging film,high,2026-04-18T00:00:00+08:00
+ST-016,3059,3020,tier-1,tier-2,Subassembly,medium,2024-10-01T00:00:00+08:00
+ST-017,3040,3053,tier-1,tier-3,Wire stock,high,2024-12-21T00:00:00+08:00
+ST-018,3048,3053,tier-1,tier-3,Wire stock,high,2026-01-19T00:00:00+08:00
+ST-019,3031,3020,tier-1,tier-2,Subassembly,high,2024-07-17T00:00:00+08:00
+ST-020,3010,3044,tier-1,tier-2,Casting,medium,2025-05-15T00:00:00+08:00
+ST-021,3007,3003,tier-1,tier-2,Packaging film,high,2026-02-11T00:00:00+08:00
+ST-022,3048,3043,tier-1,tier-2,Wire stock,high,2025-06-01T00:00:00+08:00
+ST-023,3017,3001,tier-1,tier-3,Subassembly,high,2024-11-17T00:00:00+08:00
+ST-024,3031,3034,tier-1,tier-2,Resin,medium,2025-04-30T00:00:00+08:00
+ST-025,3059,3033,tier-1,tier-2,Subassembly,medium,2025-11-12T00:00:00+08:00
+ST-026,3052,3033,tier-1,tier-2,Packaging film,low,2025-04-03T00:00:00+08:00

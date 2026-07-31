@@ -1,0 +1,16 @@
+Sheet,Description,Class
+suppliers,"Coupa supplier master. status, x_tier/x_sole_source custom fields; +lead_time_days, +moq",master
+contracts,"Coupa contracts. x_expedite_allowed, x_escalation_clause, x_penalty_terms; +x_penalty_ref -> Penalties",master
+purchase_order_headers,"Coupa PO header. po_number, supplier_id, status, need_by_date, po_total, ship_to_location",transactional
+purchase_order_lines,"Coupa PO lines. item_number, quantity, need_by_date, status",transactional
+order_confirmations,"Supplier confirmations / ASN feed. status confirmed/delayed/at_risk, delay_reason; +eta, +eta_ts(+08:00)",transactional
+inventory_positions,"ERP inventory snapshot per node. on_hand_qty, safety_stock, reorder_point; +committed_qty (phantom inventory lives here)",master
+demand_signals,ERP forecast vs actual demand (spikes live here),transactional
+disruption_notices,"Inbound disruption alerts (the trigger). notice_type, message_body; +severity, +confidence",transactional
+Warehouses,"Node master. warehouse_code (MY01/MY02/IN01/SG01/TH01/CN01), name, country, city",master
+Supplier_Tiers,Tier-1/2/3 dependency map. parent_supplier_id depends_on depends_on_supplier_id (cascade lives here),master
+Shipments,"Logistics. carrier, origin_port, port_cutoff, eta, status in_transit/at_port/delivered; links po_header_id",transactional
+Customer_Orders,"Downstream orders. item, qty, promised_date, customer, priority, ship_from_node (customer impact)",transactional
+Alternative_Suppliers,"Candidate substitutes / quotes per item. price, lead_time_days, moq, valid_until",master
+Penalties,"Contract penalty & escalation terms. penalty_amount, escalation_threshold/terms; references contracts",master
+SEEDED TRAP TYPES,R1: Tier-2 supplier failure · demand spike beyond safety stock · port cut-off miss · expedite that breaches an escalation clause. R2 NEW: tier-2 failure cascading into ~3 tier-1 suppliers · two disruptions competing for the same alternative supplier / same buffer stock · expedite that breaches an escalation clause but is cheaper once penalties are counted · port strike putting many in-transit POs past cut-off at once · phantom inventory (ERP on_hand committed to customer orders) · demand spike that only becomes critical combined with a supplier delay. Plus intentional FK-mismatch traps (orphan shipment/quote references).,note

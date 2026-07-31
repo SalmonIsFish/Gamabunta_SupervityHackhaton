@@ -1,0 +1,134 @@
+{
+  "exportFormatVersion": 1,
+  "exportedAt": "2026-07-31T12:18:37.962Z",
+  "rootWorkflowId": "019f75d9-91e6-7000-a160-6121cba2e38b",
+  "versionExportMode": "all",
+  "workflows": [
+    {
+      "sourceWorkflowId": "019f75d9-91e6-7000-a160-6121cba2e38b",
+      "sourceDefaultVersionNumber": 1,
+      "versions": [
+        {
+          "sourceVersionId": "019f75e6-51fb-7000-abd6-4aed1269ebcb",
+          "versionNumber": 1,
+          "commitMessage": null,
+          "definition": {
+            "name": "Impact Mapper",
+            "description": "An operator workflow that maps the impact of a given notice by accepting notice, supplier, and item details.",
+            "business_functions": [
+              "Operations",
+              "Supply Chain",
+              "Data Processing"
+            ],
+            "envs": [
+              {
+                "name": "SUPABASE_URL",
+                "description": "The base URL of the Supabase project (e.g., https://xyzcompany.supabase.co)."
+              },
+              {
+                "name": "SUPABASE_TOKEN",
+                "description": "The authentication token (API Key/Service Role Key) for the Supabase project to authorize HTTP requests."
+              }
+            ],
+            "inputs": [
+              {
+                "name": "notice_id",
+                "description": "The unique identifier for the notice.",
+                "type": "text",
+                "label": "Notice ID",
+                "required": true
+              },
+              {
+                "name": "supplier_id",
+                "description": "The unique identifier for the supplier.",
+                "type": "text",
+                "label": "Supplier ID",
+                "required": true
+              },
+              {
+                "name": "item_number",
+                "description": "The specific item number associated with the notice.",
+                "type": "text",
+                "label": "Item Number",
+                "required": true
+              },
+              {
+                "name": "notice_type",
+                "description": "The type or category of the notice.",
+                "type": "text",
+                "label": "Notice Type",
+                "required": true
+              }
+            ],
+            "start_at": [
+              "process_impact_data"
+            ],
+            "steps": [
+              {
+                "id": "process_impact_data",
+                "name": "Process Impact Data",
+                "description": "Reads and processes the notice, supplier, and item inputs to generate a structured impact map.",
+                "agent_prompt": "Read `notice_id`, `supplier_id`, `item_number`, and `notice_type` from `user_inputs`. Validate the data and structure it into a parsed Python dictionary representing the mapped impact. Print the result and store it in a variable for any subsequent processing steps.",
+                "services": [],
+                "depends_on": [],
+                "code_cell": "import json\nfrom IPython.display import display, HTML\n\n# 1. Access data from previous steps\n# We use the namespaced variable from query_inventory\nstep_calc_inventory_data = globals().get('step_query_inventory_positions', [])\n\n# 2. Extract values (using the first record as the primary data point)\nif not step_calc_inventory_data:\n    # If no data found, we default to manageable but with no qty\n    step_calc_on_hand = 0\n    step_calc_safety_stock = 0\n    step_calc_impact_status = \"Unknown (No Records)\"\nelse:\n    # Use the first record\n    record = step_calc_inventory_data[0]\n    step_calc_on_hand = record.get('on_hand_qty', 0)\n    step_calc_safety_stock = record.get('safety_stock', 0)\n    \n    # 3. Compare logic\n    if step_calc_on_hand <= step_calc_safety_stock:\n        step_calc_impact_status = \"Critical Shortage\"\n    else:\n        step_calc_impact_status = \"Manageable\"\n\n# 4. Construct final result dictionary\nstep_calc_result = {\n    \"notice_id\": user_inputs.get('notice_id'),\n    \"item_number\": user_inputs.get('item_number'),\n    \"impact_status\": step_calc_impact_status,\n    \"on_hand_qty\": step_calc_on_hand\n}\n\n# 5. Print JSON to stdout\nprint(json.dumps(step_calc_result, indent=2))\n\n# 6. Display HTML Summary\nbadge_class = \"ag-badge-error\" if step_calc_impact_status == \"Critical Shortage\" else \"ag-badge-success\"\nif \"Unknown\" in step_calc_impact_status:\n    badge_class = \"ag-badge-warning\"\n\nhtml_content = f\"\"\"\n<div class=\"ag-root\">\n    <div class=\"ag-card\">\n        <h2 class=\"ag-h2\">Blast Radius Analysis</h2>\n        <p class=\"ag-body\">Impact assessment for item <strong>{step_calc_result['item_number']}</strong> under notice <strong>{step_calc_result['notice_id']}</strong>.</p>\n        \n        <div style=\"margin: 1.5rem 0;\">\n            <span class=\"ag-muted\">Impact Status:</span><br/>\n            <span class=\"ag-badge {badge_class}\" style=\"font-size: 1.2rem; padding: 0.5rem 1rem;\">{step_calc_impact_status}</span>\n        </div>\n\n        <table class=\"ag-table\">\n            <thead>\n                <tr>\n                    <th>Metric</th>\n                    <th>Value</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>Current On-Hand</td>\n                    <td><span class=\"ag-metric\">{step_calc_on_hand}</span></td>\n                </tr>\n                <tr>\n                    <td>Safety Stock Level</td>\n                    <td>{step_calc_safety_stock}</td>\n                </tr>\n            </tbody>\n        </table>\n        \n        <p class=\"ag-body\" style=\"margin-top: 1rem;\">\n            {\"Action required immediately due to stock falling below safety thresholds.\" if step_calc_impact_status == \"Critical Shortage\" else \"Current stock levels are sufficient to maintain safety margins.\"}\n        </p>\n    </div>\n</div>\n\"\"\"\n\ndisplay(HTML(html_content))\n",
+                "next_steps": [
+                  {
+                    "step_id": "query_inventory"
+                  }
+                ]
+              },
+              {
+                "id": "query_inventory",
+                "name": "Query Inventory Positions",
+                "description": "Makes an HTTP GET request to the Supabase database to retrieve inventory positions for the provided item number.",
+                "agent_prompt": "Make an HTTP GET request to the Supabase REST API (using the base URL from the `SUPABASE_URL` environment variable) to query the `inventory_positions` table. Use the `SUPABASE_TOKEN` environment variable as the Bearer token in the Authorization header and also set the `apikey` header. Filter the query so that `item_number` equals `user_inputs['item_number']` (e.g. by appending `?item_number=eq.{item_number}`). Parse the JSON response and store it for the next step.",
+                "services": [
+                  "supabase"
+                ],
+                "depends_on": [
+                  "process_impact_data"
+                ],
+                "code_cell": "import os\nimport httpx\nimport json\nfrom IPython.display import display, HTML\n\nasync def step_query_inventory():\n    # 1. Configuration\n    supabase_url = os.environ.get('SUPABASE_URL')\n    mgmt_token = os.environ.get('SUPABASE_TOKEN')\n    item_number = user_inputs.get('item_number')\n\n    if not supabase_url or not mgmt_token:\n        raise ValueError(\"SUPABASE_URL or SUPABASE_TOKEN is missing.\")\n    if not item_number:\n        raise ValueError(\"item_number input is missing.\")\n\n    # 2. Key Retrieval\n    # We use the management token to get the service_role key for data access\n    project_ref = supabase_url.split('//')[1].split('.')[0]\n    mgmt_headers = {\"Authorization\": f\"Bearer {mgmt_token}\"}\n    \n    async with httpx.AsyncClient() as client:\n        # Fetch API keys from Management API\n        keys_resp = await client.get(\n            f\"https://api.supabase.com/v1/projects/{project_ref}/api-keys\", \n            headers=mgmt_headers\n        )\n        if keys_resp.status_code != 200:\n            raise Exception(f\"Management API error ({keys_resp.status_code}): {keys_resp.text}\")\n        \n        keys_data = keys_resp.json()\n        data_key = next((k['api_key'] for k in keys_data if k['name'] == 'service_role'), None)\n        if not data_key:\n            data_key = next((k['api_key'] for k in keys_data if k['name'] == 'anon'), None)\n        \n        if not data_key:\n            raise Exception(\"No data access key found.\")\n\n        # 3. Data Query\n        # Note: Table name is case-sensitive 'Inventory_positions'\n        base_url = supabase_url.rstrip('/')\n        data_endpoint = f\"{base_url}/rest/v1/Inventory_positions\"\n        data_params = {\n            \"item_number\": f\"eq.{item_number}\",\n            \"select\": \"*\"\n        }\n        data_headers = {\n            \"Authorization\": f\"Bearer {data_key}\",\n            \"apikey\": data_key,\n            \"Content-Type\": \"application/json\"\n        }\n\n        data_resp = await client.get(data_endpoint, headers=data_headers, params=data_params)\n        data_resp.raise_for_status()\n        \n        # Store for downstream steps\n        globals()['step_query_inventory_positions'] = data_resp.json()\n\n    # 4. Result Output\n    positions = globals()['step_query_inventory_positions']\n    print(json.dumps(positions, indent=2))\n\n    # 5. Summary Display\n    record_count = len(positions)\n    status_badge = \"ag-badge-success\" if record_count > 0 else \"ag-badge-warning\"\n    status_text = f\"{record_count} Record(s) Found\"\n\n    html = f\"\"\"\n    <div class=\"ag-root\">\n        <div class=\"ag-card\">\n            <h2 class=\"ag-h2\">Inventory Availability</h2>\n            <p class=\"ag-body\">Current inventory status for: <strong>{item_number}</strong></p>\n            \n            <div style=\"margin: 1rem 0;\">\n                <span class=\"ag-badge {status_badge}\">{status_text}</span>\n            </div>\n    \"\"\"\n\n    if record_count > 0:\n        html += \"\"\"\n            <table class=\"ag-table\">\n                <thead>\n                    <tr>\n                        <th>Location</th>\n                        <th>On-Hand</th>\n                        <th>Safety Stock</th>\n                        <th>Status</th>\n                    </tr>\n                </thead>\n                <tbody>\n        \"\"\"\n        for pos in positions:\n            on_hand = pos.get('on_hand_qty', 0)\n            safety = pos.get('safety_stock', 0)\n            loc = pos.get('location_id', 'Main')\n            \n            # Simple threshold logic\n            is_low = on_hand <= safety\n            row_badge = \"ag-badge-error\" if is_low else \"ag-badge-success\"\n            row_status = \"Low Stock\" if is_low else \"Adequate\"\n            \n            html += f\"\"\"\n                <tr>\n                    <td>{loc}</td>\n                    <td><span class=\"ag-metric\" style=\"font-size: 1rem;\">{on_hand}</span></td>\n                    <td>{safety}</td>\n                    <td><span class=\"ag-badge {row_badge}\">{row_status}</span></td>\n                </tr>\n            \"\"\"\n        html += \"</tbody></table>\"\n    else:\n        html += f\"<p class='ag-body ag-muted'>No inventory data available for this item code.</p>\"\n\n    html += \"</div></div>\"\n    display(HTML(html))\n\n# Execute\nawait step_query_inventory()\n",
+                "next_steps": [
+                  {
+                    "step_id": "calculate_blast_radius"
+                  }
+                ]
+              },
+              {
+                "id": "calculate_blast_radius",
+                "name": "Calculate Blast Radius",
+                "description": "Calculates the blast radius by comparing on-hand inventory with safety stock.",
+                "agent_prompt": "Extract `on_hand_qty` and `safety_stock` from the Supabase response from the previous step. Compare them: if `on_hand_qty` <= `safety_stock`, set `impact_status` to 'Critical Shortage', else set to 'Manageable'. Print and output a dictionary containing `notice_id`, `item_number` (from `user_inputs`), `impact_status`, and `on_hand_qty`.",
+                "services": [],
+                "depends_on": [
+                  "query_inventory"
+                ],
+                "code_cell": "import json\nfrom IPython.display import display, HTML\n\ndef run_calculate_blast_radius():\n    # 1. Access inputs and previous step data\n    # Previous step 'query_inventory' stores its data in globals()['step_query_inventory_positions']\n    step_inventory_positions = globals().get('step_query_inventory_positions', [])\n    \n    notice_id = user_inputs.get('notice_id')\n    item_number = user_inputs.get('item_number')\n\n    # 2. Extract values and evaluate impact\n    # We take the first inventory record found for this item\n    if step_inventory_positions and len(step_inventory_positions) > 0:\n        record = step_inventory_positions[0]\n        on_hand_qty = record.get('on_hand_qty', 0)\n        safety_stock = record.get('safety_stock', 0)\n        \n        if on_hand_qty <= safety_stock:\n            impact_status = 'Critical Shortage'\n            badge_variant = 'ag-badge-error'\n            status_desc = \"Stock level is below or equal to the safety threshold. Immediate replenishment or mitigation is required.\"\n        else:\n            impact_status = 'Manageable'\n            badge_variant = 'ag-badge-success'\n            status_desc = \"Stock level is above the safety threshold. Current inventory is sufficient to handle the notice impact.\"\n    else:\n        # Handle case where no inventory data was returned\n        on_hand_qty = 0\n        safety_stock = 0\n        impact_status = 'No Inventory Data'\n        badge_variant = 'ag-badge-warning'\n        status_desc = \"No inventory records were found for this item. Impact assessment cannot be determined accurately.\"\n\n    # 3. Store result in a namespaced variable\n    global step_calculate_blast_radius_result\n    step_calculate_blast_radius_result = {\n        \"notice_id\": notice_id,\n        \"item_number\": item_number,\n        \"impact_status\": impact_status,\n        \"on_hand_qty\": on_hand_qty\n    }\n\n    # 4. JSON Output for the platform\n    print(json.dumps(step_calculate_blast_radius_result, indent=2))\n\n    # 5. HTML Output (Atmospheric Glass)\n    html_content = f\"\"\"\n<div class=\"ag-root\">\n    <div class=\"ag-card\">\n        <h2 class=\"ag-h2\">Impact Analysis Result</h2>\n        <p class=\"ag-body\">Final assessment for item <strong>{item_number}</strong> relating to notice <strong>{notice_id}</strong>.</p>\n        \n        <div style=\"margin: 1.5rem 0;\">\n            <span class=\"ag-muted\">Assessment:</span><br/>\n            <span class=\"ag-badge {badge_variant}\" style=\"font-size: 1.1rem; padding: 0.4rem 0.8rem;\">{impact_status}</span>\n        </div>\n\n        <table class=\"ag-table\">\n            <thead>\n                <tr>\n                    <th>Parameter</th>\n                    <th>Detail</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>Current On-Hand Qty</td>\n                    <td><span class=\"ag-metric\" style=\"font-size: 1.2rem;\">{on_hand_qty}</span></td>\n                </tr>\n                <tr>\n                    <td>Safety Stock Target</td>\n                    <td>{safety_stock}</td>\n                </tr>\n                <tr>\n                    <td>Analysis</td>\n                    <td>{status_desc}</td>\n                </tr>\n            </tbody>\n        </table>\n    </div>\n</div>\n\"\"\"\n    display(HTML(html_content))\n\n# Execute the step logic\nrun_calculate_blast_radius()\n",
+                "next_steps": []
+              }
+            ],
+            "pip_packages": [
+              "requests",
+              "IPython",
+              "httpx",
+              "json"
+            ],
+            "integration_overrides": {}
+          }
+        }
+      ]
+    }
+  ],
+  "schedules": [],
+  "integrationsManifest": {
+    "services": [
+      "supabase"
+    ],
+    "envNames": [
+      "SUPABASE_TOKEN",
+      "SUPABASE_URL"
+    ]
+  }
+}

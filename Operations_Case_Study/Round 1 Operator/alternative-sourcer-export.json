@@ -1,0 +1,99 @@
+{
+  "exportFormatVersion": 1,
+  "exportedAt": "2026-07-31T12:18:33.146Z",
+  "rootWorkflowId": "019f75ea-45bb-7000-897e-e31a5124c627",
+  "versionExportMode": "all",
+  "workflows": [
+    {
+      "sourceWorkflowId": "019f75ea-45bb-7000-897e-e31a5124c627",
+      "sourceDefaultVersionNumber": 1,
+      "versions": [
+        {
+          "sourceVersionId": "019f75f5-b0a2-7000-8da8-1efb4d355035",
+          "versionNumber": 1,
+          "commitMessage": null,
+          "definition": {
+            "name": "Alternative Sourcer",
+            "description": "A workflow that receives a JSON payload containing an item number, queries a Supabase 'contracts' table to find alternative sourcing options where expediting is allowed, and evaluates the backup options to generate a final report.",
+            "business_functions": [
+              "Procurement",
+              "Supply Chain"
+            ],
+            "envs": [
+              {
+                "name": "SUPABASE_URL",
+                "description": "The base URL for the Supabase project (e.g., https://xyz.supabase.co)."
+              },
+              {
+                "name": "SUPABASE_TOKEN",
+                "description": "The access token / API key for Supabase authentication."
+              }
+            ],
+            "inputs": [
+              {
+                "name": "input_payload",
+                "description": "JSON payload containing the 'item_number' to query (e.g., {\"item_number\": \"12345\"}).",
+                "type": "textarea",
+                "label": "Input Payload (JSON)",
+                "required": true
+              }
+            ],
+            "start_at": [
+              "query_contracts_table"
+            ],
+            "steps": [
+              {
+                "id": "query_contracts_table",
+                "name": "Query Supabase Contracts",
+                "description": "Queries the Supabase 'contracts' table for the provided item number where expedite is allowed.",
+                "agent_prompt": "Parse the `input_payload` JSON from the workflow inputs to extract the `item_number`. Make an HTTP GET request to the Supabase REST API endpoint `<SUPABASE_URL>/rest/v1/contracts`. Add query parameters to filter the results: `item_number=eq.<item_number>` and `x_expedite_allowed=is.true`. Pass the `SUPABASE_TOKEN` environment variable in the `apikey` header and `Authorization: Bearer <SUPABASE_TOKEN>` header. Save the matching rows from the JSON response as a variable named `matching_contracts`.",
+                "services": [
+                  "supabase"
+                ],
+                "is_human_input_step": false,
+                "depends_on": [],
+                "code_cell": "import json\nimport os\nimport httpx\nimport sys\nimport re\nimport asyncio\nfrom IPython.display import display, HTML\n\nasync def step_query_contracts_table_implementation():\n    # 1. Prepare Inputs\n    input_payload_str = user_inputs.get('input_payload', '{}')\n    try:\n        if isinstance(input_payload_str, dict):\n            input_payload = input_payload_str\n        else:\n            input_payload = json.loads(input_payload_str)\n    except json.JSONDecodeError as e:\n        print(f\"Error decoding input_payload: {e}\", file=sys.stderr)\n        raise ValueError(\"Invalid JSON format in input_payload.\")\n\n    item_number = input_payload.get('item_number')\n    if not item_number:\n        raise ValueError(\"item_number not found in input_payload.\")\n\n    # 2. Configuration & Key Resolution\n    supabase_url = os.environ.get('SUPABASE_URL', '').rstrip('/')\n    supabase_mgmt_token = os.environ.get('SUPABASE_TOKEN')\n\n    if not supabase_url or not supabase_mgmt_token:\n        raise ValueError(\"SUPABASE_URL or SUPABASE_TOKEN environment variables are missing.\")\n\n    match = re.search(r'https://([^.]+)\\.supabase\\.co', supabase_url)\n    if not match:\n        raise ValueError(f\"Could not extract project reference from SUPABASE_URL: {supabase_url}\")\n    project_ref = match.group(1)\n\n    headers_mgmt = {\"Authorization\": f\"Bearer {supabase_mgmt_token}\"}\n    \n    async with httpx.AsyncClient() as client:\n        # Resolve service_role key\n        resp_mgmt = await client.get(f\"https://api.supabase.com/v1/projects/{project_ref}/api-keys\", headers=headers_mgmt)\n        resp_mgmt.raise_for_status()\n        keys = resp_mgmt.json()\n        service_role_key = next((k['api_key'] for k in keys if k['name'] == 'service_role'), None)\n        \n        if not service_role_key:\n            raise ValueError(\"Could not resolve service_role key.\")\n\n        headers_data = {\n            \"apikey\": service_role_key,\n            \"Authorization\": f\"Bearer {service_role_key}\",\n            \"Content-Type\": \"application/json\"\n        }\n\n        # 3. Step-by-step retrieval of suppliers and contracts\n        # We perform an indirect search since 'item_number' is not directly on the 'contracts' table.\n        \n        # A. Find Suppliers who provide the item (via PO lines and headers)\n        print(f\"Searching for suppliers providing item: {item_number}...\")\n        url_lines = f\"{supabase_url}/rest/v1/purchase_order_lines\"\n        resp_lines = await client.get(url_lines, headers=headers_data, params={\"item_number\": f\"eq.{item_number}\", \"select\": \"po_header_id\"})\n        \n        if resp_lines.status_code != 200:\n            print(f\"Failed to fetch PO lines: {resp_lines.text}\", file=sys.stderr)\n            matching_contracts = []\n        else:\n            lines = resp_lines.json()\n            po_ids = list(set([l['po_header_id'] for l in lines]))\n            \n            if not po_ids:\n                print(f\"No purchase history found for item {item_number}.\")\n                matching_contracts = []\n            else:\n                # Get supplier IDs from headers\n                url_headers = f\"{supabase_url}/rest/v1/purchase_order_headers\"\n                po_ids_str = \",\".join(map(str, po_ids))\n                resp_headers = await client.get(url_headers, headers=headers_data, params={\"id\": f\"in.({po_ids_str})\", \"select\": \"supplier_id\"})\n                \n                if resp_headers.status_code != 200:\n                    print(f\"Failed to fetch PO headers: {resp_headers.text}\", file=sys.stderr)\n                    matching_contracts = []\n                else:\n                    supplier_ids = list(set([h['supplier_id'] for h in resp_headers.json()]))\n                    \n                    # B. Fetch Contracts and Supplier Names for these suppliers\n                    if not supplier_ids:\n                        matching_contracts = []\n                    else:\n                        supplier_ids_str = \",\".join(map(str, supplier_ids))\n                        \n                        # Parallel fetch contracts and suppliers\n                        contracts_task = client.get(\n                            f\"{supabase_url}/rest/v1/contracts\", \n                            headers=headers_data, \n                            params={\"supplier_id\": f\"in.({supplier_ids_str})\", \"x_expedite_allowed\": \"is.true\", \"select\": \"*\"}\n                        )\n                        suppliers_task = client.get(\n                            f\"{supabase_url}/rest/v1/suppliers\", \n                            headers=headers_data, \n                            params={\"id\": f\"in.({supplier_ids_str})\", \"select\": \"id,name\"}\n                        )\n                        \n                        resp_contracts, resp_suppliers = await asyncio.gather(contracts_task, suppliers_task)\n                        \n                        if resp_contracts.status_code == 200 and resp_suppliers.status_code == 200:\n                            contracts_data = resp_contracts.json()\n                            suppliers_map = {s['id']: s['name'] for s in resp_suppliers.json()}\n                            \n                            # C. Merge data\n                            matching_contracts = []\n                            for c in contracts_data:\n                                c['supplier_name'] = suppliers_map.get(c['supplier_id'], 'Unknown Supplier')\n                                matching_contracts.append(c)\n                        else:\n                            print(\"Error fetching contracts or supplier details.\", file=sys.stderr)\n                            matching_contracts = []\n\n    # 4. Save results\n    globals()['matching_contracts'] = matching_contracts\n    globals()['step_query_contracts_table_matching_contracts'] = matching_contracts\n\n    print(f\"Found {len(matching_contracts)} alternative contract options.\")\n\n    # 5. Render HTML\n    if matching_contracts:\n        rows_html = \"\"\n        for contract in matching_contracts:\n            rows_html += f\"\"\"\n            <tr>\n                <td>{contract.get('contract_number', 'N/A')}</td>\n                <td>{contract.get('supplier_name')}</td>\n                <td><span class=\"ag-badge ag-badge-success\">Expedite Allowed</span></td>\n            </tr>\n            \"\"\"\n            \n        html_output = f\"\"\"\n        <div class=\"ag-root\">\n            <div class=\"ag-card\">\n                <h2 class=\"ag-h2\">Alternate Sourcer: Contract Query</h2>\n                <p class=\"ag-body\">The following alternative contracts for item <strong>{item_number}</strong> allow for expediting:</p>\n                <table class=\"ag-table\">\n                    <thead>\n                        <tr>\n                            <th>Contract #</th>\n                            <th>Supplier</th>\n                            <th>Status</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        {rows_html}\n                    </tbody>\n                </table>\n            </div>\n        </div>\n        \"\"\"\n    else:\n        html_output = f\"\"\"\n        <div class=\"ag-root\">\n            <div class=\"ag-card\">\n                <h2 class=\"ag-h2\">Alternate Sourcer: Contract Query</h2>\n                <p class=\"ag-body\">No alternative contracts with expedited shipping permissions were found for item <strong>{item_number}</strong>.</p>\n                <span class=\"ag-badge ag-badge-warning\">No Options Found</span>\n            </div>\n        </div>\n        \"\"\"\n        \n    display(HTML(html_output))\n\nawait step_query_contracts_table_implementation()\n",
+                "next_steps": [
+                  {
+                    "step_id": "evaluate_backup_options"
+                  }
+                ]
+              },
+              {
+                "id": "evaluate_backup_options",
+                "name": "Evaluate Backup Options",
+                "description": "Evaluates the matching contracts to extract alternative suppliers, contract IDs, and check for alternate part availability, producing the final output object.",
+                "agent_prompt": "Extract the `item_number` from the `input_payload` workflow input. Iterate through the `matching_contracts` list from the previous step. For each contract, extract the alternative supplier's name and contract ID. Check if an alternate part option exists by looking for non-null/non-empty values in the alternate part fields. Construct a final output object containing 'item_number', 'alternative_supplier_found' (boolean, true if `matching_contracts` is not empty), and 'backup_contract_details' (the list of extracted supplier names, contract IDs, and alternate part exists flags). Save this final object.",
+                "services": [
+                  "output_artifacts"
+                ],
+                "is_human_input_step": false,
+                "depends_on": [
+                  "query_contracts_table"
+                ],
+                "code_cell": "import json\nimport sys\nfrom IPython.display import display, HTML\n\nasync def step_evaluate_backup_options_implementation():\n    # 1. Access Inputs\n    input_payload_str = user_inputs.get('input_payload', '{}')\n    try:\n        if isinstance(input_payload_str, dict):\n            input_payload = input_payload_str\n        else:\n            input_payload = json.loads(input_payload_str)\n    except json.JSONDecodeError:\n        input_payload = {}\n    \n    item_number = input_payload.get('item_number', 'Unknown')\n    \n    # Retrieve matching contracts from the previous step\n    # Based on the previous step's code, it was saved to globals\n    matching_contracts = globals().get('step_query_contracts_table_matching_contracts', [])\n    \n    # 2. Process Contracts\n    step_evaluate_backup_options_details = []\n    \n    for contract in matching_contracts:\n        # Extract details\n        supplier_name = contract.get('supplier_name', 'Unknown')\n        contract_id = contract.get('contract_number') or contract.get('id', 'N/A')\n        \n        # Check for alternate part fields (common naming conventions)\n        # We look for non-null/non-empty values in keys that suggest an alternate part\n        alt_fields = ['alternate_part_number', 'alternate_part', 'alt_part_no', 'alternate_item_id']\n        alt_part_exists = any(bool(contract.get(field)) for field in alt_fields if field in contract)\n        \n        step_evaluate_backup_options_details.append({\n            \"supplier_name\": supplier_name,\n            \"contract_id\": str(contract_id),\n            \"alternate_part_exists\": alt_part_exists\n        })\n    \n    # 3. Construct Final Output Object\n    step_evaluate_backup_options_output = {\n        \"item_number\": item_number,\n        \"alternative_supplier_found\": len(matching_contracts) > 0,\n        \"backup_contract_details\": step_evaluate_backup_options_details\n    }\n    \n    # Save to globals for future steps\n    globals()['step_evaluate_backup_options_output'] = step_evaluate_backup_options_output\n    \n    # 4. Print JSON for stdout\n    print(json.dumps(step_evaluate_backup_options_output, indent=2, default=str))\n    \n    # 5. Render HTML Summary\n    if step_evaluate_backup_options_output[\"alternative_supplier_found\"]:\n        rows_html = \"\"\n        for detail in step_evaluate_backup_options_details:\n            alt_badge = (\n                '<span class=\"ag-badge ag-badge-success\">Available</span>' \n                if detail[\"alternate_part_exists\"] \n                else '<span class=\"ag-badge-neutral ag-badge\">None</span>'\n            )\n            rows_html += f\"\"\"\n            <tr>\n                <td>{detail['supplier_name']}</td>\n                <td>{detail['contract_id']}</td>\n                <td>{alt_badge}</td>\n            </tr>\n            \"\"\"\n            \n        html_output = f\"\"\"\n        <div class=\"ag-root\">\n            <div class=\"ag-card\">\n                <h2 class=\"ag-h2\">Sourcing Evaluation Report</h2>\n                <p class=\"ag-body\">Evaluation of backup sourcing options for Item <strong>{item_number}</strong>.</p>\n                <div class=\"ag-metric\">{len(step_evaluate_backup_options_details)}</div>\n                <span class=\"ag-muted\">Alternative Suppliers Found</span>\n                \n                <table class=\"ag-table\">\n                    <thead>\n                        <tr>\n                            <th>Supplier Name</th>\n                            <th>Contract ID</th>\n                            <th>Alt Part Option</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        {rows_html}\n                    </tbody>\n                </table>\n            </div>\n        </div>\n        \"\"\"\n    else:\n        html_output = f\"\"\"\n        <div class=\"ag-root\">\n            <div class=\"ag-card\">\n                <h2 class=\"ag-h2\">Sourcing Evaluation Report</h2>\n                <p class=\"ag-body\">No alternative sourcing options were found for item <strong>{item_number}</strong>.</p>\n                <span class=\"ag-badge ag-badge-error\">No Suppliers Available</span>\n            </div>\n        </div>\n        \"\"\"\n        \n    display(HTML(html_output))\n\nawait step_evaluate_backup_options_implementation()\n",
+                "next_steps": []
+              }
+            ],
+            "pip_packages": [
+              "requests",
+              "httpx"
+            ],
+            "integration_overrides": {}
+          }
+        }
+      ]
+    }
+  ],
+  "schedules": [],
+  "integrationsManifest": {
+    "services": [
+      "output_artifacts",
+      "supabase"
+    ],
+    "envNames": [
+      "SUPABASE_TOKEN",
+      "SUPABASE_URL"
+    ]
+  }
+}
