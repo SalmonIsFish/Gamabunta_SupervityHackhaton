@@ -96,7 +96,7 @@ async def generate_insights(
     evaluation and workbench resolution activity. Manually triggered — see
     app/services/insight_engine.py for what it looks at.
     """
-    insights = insight_engine.generate_insights(db, domain=domain)
+    insights = await insight_engine.generate_insights(db, domain=domain)
     return InsightGenerateResponse(
         generated_count=len(insights),
         insights=[InsightResponse.model_validate(insight) for insight in insights],

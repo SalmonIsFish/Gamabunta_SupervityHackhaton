@@ -27,6 +27,7 @@ from ..models.work_item import (
 )
 from ..schemas.work_item import (
     WorkItemActionResponse,
+    WorkItemCreate,
     WorkItemListResponse,
     WorkItemResolveRequest,
     WorkItemResponse,
@@ -62,6 +63,56 @@ def _apply_work_item_filters(query, filters: dict):
     if filters.get("source_agent"):
         query = query.filter(WorkItem.source_agent.ilike(f"%{filters['source_agent']}%"))
     return query
+
+
+@router.post("", response_model=WorkItemResponse, status_code=201)
+async def create_work_item(
+    payload: WorkItemCreate,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Raise a new exception onto the Workbench queue.
+
+    This is the generic escalation path for anything that isn't a policy
+    conflict (those are raised automatically by policy_engine.evaluate()).
+    An Orchestrator/Operator calls this directly when it hits missing or
+    orphaned data, a low-confidence read, a high-stakes action, or a novel
+    scenario it has no precedent for — see WorkItemExceptionType.
+    """
+    work_item = WorkItem(
+        title=payload.title,
+        description=payload.description,
+        exception_type=payload.exception_type.value,
+        priority=payload.priority.value,
+        source_agent=payload.source_agent,
+        ai_recommendation=payload.ai_recommendation,
+        confidence_score=payload.confidence_score,
+        resource_type=payload.resource_type,
+        resource_id=payload.resource_id,
+        context=payload.context,
+    )
+    db.add(work_item)
+    db.commit()
+    db.refresh(work_item)
+
+    await audit.log(
+        action="workbench.create",
+        description=f"Work item #{work_item.id} ({work_item.title}) raised as {work_item.exception_type}",
+        actor=user,
+        category=AuditCategory.DATA,
+        severity=AuditSeverity.WARNING,
+        resource_type=work_item.resource_type,
+        resource_id=work_item.resource_id,
+        resource_name=work_item.title,
+        metadata={
+            "exception_type": work_item.exception_type,
+            "priority": work_item.priority,
+            "source_agent": work_item.source_agent,
+        },
+    )
+
+    return WorkItemResponse.model_validate(work_item)
 
 
 @router.get("", response_model=WorkItemListResponse)
