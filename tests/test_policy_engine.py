@@ -167,3 +167,81 @@ async def test_evaluate_conflict_creates_work_item():
             db.close()
     finally:
         _cleanup()
+
+
+async def test_evaluate_multi_action_policy_auto_approved():
+    """A policy with several permissive actions (new `actions` list) is still a clean auto_approved."""
+    _cleanup()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await _create_active_policy(
+                client,
+                name="Auto-approve and notify",
+                condition={"field": "amount", "op": "lt", "value": 500},
+                action=None,
+                actions=[{"type": "auto_approve"}, {"type": "allow", "value": "fast_track"}],
+            )
+
+            resp = await client.post(
+                "/api/ai/policies/evaluate",
+                json={
+                    "domain": TEST_DOMAIN,
+                    "entity_type": TEST_ENTITY_TYPE,
+                    "entity_data": {"id": 4, "amount": 100},
+                    "source_agent": "Test Agent",
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["verdict"] == "auto_approved"
+        # One MatchedPolicySummary per action on the matched policy
+        assert len(body["matched_policies"]) == 2
+        assert all(m["bucket"] == "permissive" for m in body["matched_policies"])
+        assert body["workbench_item_id"] is None
+    finally:
+        _cleanup()
+
+
+async def test_evaluate_multi_action_policy_self_conflict():
+    """A single policy whose actions span both buckets legitimately raises its own conflict."""
+    _cleanup()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await _create_active_policy(
+                client,
+                name="Approve but flag for review",
+                condition={"field": "amount", "op": "lt", "value": 500},
+                action=None,
+                actions=[{"type": "auto_approve"}, {"type": "flag_for_review", "value": "audit"}],
+            )
+
+            resp = await client.post(
+                "/api/ai/policies/evaluate",
+                json={
+                    "domain": TEST_DOMAIN,
+                    "entity_type": TEST_ENTITY_TYPE,
+                    "entity_data": {"id": 5, "amount": 100},
+                    "source_agent": "Test Agent",
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["verdict"] == "blocked_pending_review"
+        assert len(body["matched_policies"]) == 2
+        assert body["workbench_item_id"] is not None
+
+        db = SessionLocal()
+        try:
+            work_item = db.query(WorkItem).filter(WorkItem.id == body["workbench_item_id"]).first()
+            assert work_item is not None
+            # Same policy on both sides of its own conflict
+            assert work_item.context["permissive_policies"][0]["name"] == "Approve but flag for review"
+            assert work_item.context["gating_policies"][0]["name"] == "Approve but flag for review"
+            assert "auto_approve" in work_item.context["permissive_policies"][0]["actions"]
+            assert "flag_for_review" in work_item.context["gating_policies"][0]["actions"]
+        finally:
+            db.close()
+    finally:
+        _cleanup()

@@ -115,6 +115,22 @@ def evaluate_condition(condition: Optional[dict[str, Any]], entity_data: dict[st
     return _apply_op(op, actual, condition.get("value"))
 
 
+def _resolve_actions(policy: Policy) -> list[dict[str, Any]]:
+    """
+    A policy's actions, in list form.
+
+    Prefers the new `actions` column (list of {"type","value","params"}).
+    Falls back to the legacy singular `action`/`action_params` fields when
+    `actions` isn't populated — zero behavior change for policies created
+    before multi-action support (including every seeded procurement policy).
+    """
+    if policy.actions:
+        return policy.actions
+    if policy.action:
+        return [{"type": policy.action, "value": None, "params": policy.action_params}]
+    return []
+
+
 def _classify_action(action: Optional[str]) -> str:
     """Bucket a policy's action into 'permissive' or 'gating'. Unknown actions default to gating."""
     if not action:
@@ -145,8 +161,12 @@ def _raise_conflict_work_item(
     gating_matches: list[Policy],
 ) -> int:
     """Route a policy conflict to the AI Workbench for a human to resolve."""
-    permissive_summary = [{"id": p.id, "name": p.name, "action": p.action} for p in permissive_matches]
-    gating_summary = [{"id": p.id, "name": p.name, "action": p.action} for p in gating_matches]
+
+    def _action_types(p: Policy) -> list[str]:
+        return [a.get("type") for a in _resolve_actions(p) if isinstance(a, dict) and a.get("type")]
+
+    permissive_summary = [{"id": p.id, "name": p.name, "actions": _action_types(p)} for p in permissive_matches]
+    gating_summary = [{"id": p.id, "name": p.name, "actions": _action_types(p)} for p in gating_matches]
     entity_id = entity_data.get("id")
 
     work_item = WorkItem(
@@ -211,9 +231,33 @@ async def evaluate(
         if not evaluate_condition(policy.condition, entity_data):
             continue
 
-        bucket = _classify_action(policy.action)
-        matched.append(MatchedPolicySummary(id=policy.id, name=policy.name, action=policy.action, bucket=bucket))
-        (permissive_matches if bucket == "permissive" else gating_matches).append(policy)
+        policy_actions = _resolve_actions(policy)
+        touched_permissive = False
+        touched_gating = False
+
+        if not policy_actions:
+            # Matched but has no action at all — fail-safe as gating, same
+            # default _classify_action uses for an unset/unrecognized action.
+            bucket = _classify_action(None)
+            matched.append(MatchedPolicySummary(id=policy.id, name=policy.name, action=None, bucket=bucket))
+            touched_gating = True
+        else:
+            for act in policy_actions:
+                action_type = act.get("type") if isinstance(act, dict) else act
+                bucket = _classify_action(action_type)
+                matched.append(MatchedPolicySummary(id=policy.id, name=policy.name, action=action_type, bucket=bucket))
+                if bucket == "permissive":
+                    touched_permissive = True
+                else:
+                    touched_gating = True
+
+        # A policy lands in a bucket at most once here even if several of its
+        # actions share that bucket — a self-conflicting multi-action policy
+        # (one permissive action + one gating action) legitimately touches both.
+        if touched_permissive:
+            permissive_matches.append(policy)
+        if touched_gating:
+            gating_matches.append(policy)
 
         policy.trigger_count = (policy.trigger_count or 0) + 1
         policy.last_evaluated_at = now

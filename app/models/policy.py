@@ -57,9 +57,26 @@ class Policy(Base):
     condition = Column(JSON, nullable=True)  # Structured: {"field": "amount", "op": ">", "value": 50000}
     natural_language_rule = Column(Text, nullable=True)  # Natural language: free-text instruction
 
-    # What happens when the rule matches
+    # What happens when the rule matches — legacy single-action fields, kept
+    # for backward compatibility. New policies should prefer `actions` below;
+    # policy_engine.py falls back to these when `actions` is empty/null.
     action = Column(String(255), nullable=True)  # e.g. "require_approval", "flag_for_review"
     action_params = Column(JSON, nullable=True)
+
+    # Multi-action support: list of {"type": str, "value": Any, "params": dict}.
+    # A policy can now land in both the permissive and gating bucket at once
+    # if its actions include both kinds — see policy_engine.py's evaluate().
+    actions = Column(JSON, nullable=True)
+
+    # Authoring/display metadata from the Command Center UI (Create with AI,
+    # tags, entity scoping). Descriptive only — not read by evaluate().
+    tags = Column(JSON, nullable=False, default=list)  # list[str]
+    entity_name = Column(String(255), nullable=True)
+    policy_scope = Column(String(20), nullable=False, default="custom")  # 'base' | 'instruction' | 'custom'
+    summary = Column(Text, nullable=True)
+    refined_instruction = Column(Text, nullable=True)
+    ai_instruction = Column(Text, nullable=True)
+    source = Column(String(50), nullable=True)
 
     # Evaluation order: lower number = evaluated first
     priority = Column(Integer, nullable=False, default=100, index=True)

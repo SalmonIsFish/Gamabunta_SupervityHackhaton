@@ -40,6 +40,7 @@ from .routers import (
     ai_manager_router,
     audit_router,
     auth_router,
+    data_manager_router,
     examples_router,
     health_router,
     insights_router,
@@ -166,6 +167,9 @@ api_router.include_router(insights_router)
 
 # AI Manager (chat)
 api_router.include_router(ai_manager_router)
+
+# Data Manager (live integration registry)
+api_router.include_router(data_manager_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)
