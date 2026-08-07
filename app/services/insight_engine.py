@@ -519,10 +519,11 @@ async def _derive_operational_insights(domain: Optional[str]) -> list[Insight]:
         supabase_client.select("order_confirmations"),
         supabase_client.select("purchase_order_headers", {"select": "*", "status": "eq.issued"}),
         supabase_client.select("demand_signals"),
-        # Table name is case-sensitive in this Supabase project: "Inventory_positions",
-        # not "inventory_positions" — confirmed against the Round 1 Auto workflow's own
-        # code comment and by hitting the REST API directly (lowercase 404s).
-        supabase_client.select("Inventory_positions"),
+        # Table name is case-sensitive in this Supabase project. It was
+        # "Inventory_positions" (capital I) before the 2026-08 full reseed;
+        # the reseed recreated it as all-lowercase "inventory_positions" —
+        # confirmed by hitting the REST API directly (capital-I now 404s).
+        supabase_client.select("inventory_positions"),
         supabase_client.select("suppliers", {"select": "*", "x_sole_source": "eq.true"}),
         supabase_client.select("contracts", {"select": "*", "status": "eq.published"}),
     )
