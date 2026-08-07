@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, useInView } from 'framer-motion'
-import apiClient from '@/lib/api-client'
+import { apiClient } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
-import { ActivityChart } from '@/components/ActivityChart'
+import { ActivityChart, type ActivityDatum } from '@/components/ActivityChart'
 import { cn } from '@/lib/utils'
 
 // Animation variants
@@ -93,7 +93,7 @@ interface StatCardProps {
   value: number
   suffix?: string
   icon: React.ElementType
-  trend?: { value: string; positive: boolean }
+  subtitle?: string
   colorClass: string
   delay?: number
 }
@@ -103,7 +103,7 @@ function StatCard({
   value,
   suffix = '',
   icon: Icon,
-  trend,
+  subtitle,
   colorClass,
   delay = 0,
 }: StatCardProps) {
@@ -129,26 +129,15 @@ function StatCard({
               <p className='font-display text-[2.25rem] font-bold leading-none tracking-tight text-brand-navy'>
                 <AnimatedNumber value={value} suffix={suffix} />
               </p>
-              {/* Trend */}
-              {trend && (
+              {/* Real, honestly-labeled context — no fabricated trend % */}
+              {subtitle && (
                 <motion.p
-                  className={cn(
-                    'flex items-center gap-1 text-xs font-medium',
-                    trend.positive ? 'text-emerald-600' : 'text-red-500'
-                  )}
+                  className='flex items-center gap-1 text-xs font-medium text-muted-foreground'
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: delay + 0.3 }}
                 >
-                  {trend.positive ? (
-                    <Icons.trendingUp className='h-3 w-3' strokeWidth={2} />
-                  ) : (
-                    <Icons.trendingUp
-                      className='h-3 w-3 rotate-180'
-                      strokeWidth={2}
-                    />
-                  )}
-                  {trend.value}
+                  {subtitle}
                 </motion.p>
               )}
             </div>
@@ -206,7 +195,7 @@ function DiagnosticsCard() {
     setIsLoading(true)
     setter('Loading...')
     try {
-      const data = await apiClient(endpoint)
+      const data = await apiClient.get(endpoint)
       setter(JSON.stringify(data, null, 2))
     } catch (error) {
       setter(
@@ -293,8 +282,127 @@ function DiagnosticsCard() {
   )
 }
 
-// Main Dashboard — no auth required, renders directly
+// ============================================================================
+// Dashboard data — live counts from the real backend, not the template's demo
+// numbers. /api/admin/audit and /api/data-manager/status both resolve via
+// AUTH_BYPASS's dev user with no token when auth is bypassed (same as
+// DiagnosticsCard's existing unauthenticated calls on this page) — if
+// AUTH_BYPASS is ever turned off, these fetches would need a session gate.
+// ============================================================================
+
+interface DashboardStats {
+  pendingWorkbench: number
+  criticalPendingWorkbench: number
+  newInsights: number
+  criticalNewInsights: number
+  activePolicies: number
+  integrationsHealthy: number
+  integrationsTotal: number
+  integrationsLiveChecked: number
+}
+
+interface ListTotal {
+  total: number
+}
+
+interface IntegrationStatusItem {
+  status: 'healthy' | 'unhealthy' | 'configured' | 'not_configured' | 'external'
+  checked_live: boolean
+}
+
+const CHART_ACTIONS = {
+  chatTurns: 'ai_manager.chat',
+  workbenchItems: 'workbench.create',
+  policyEvaluations: 'policy.evaluate',
+} as const
+
+async function fetchDailyActivity(): Promise<ActivityDatum[]> {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const end = new Date()
+    end.setUTCHours(0, 0, 0, 0)
+    end.setUTCDate(end.getUTCDate() - (6 - i) + 1)
+    const start = new Date(end)
+    start.setUTCDate(start.getUTCDate() - 1)
+    return { start, end, name: start.toLocaleDateString('en-US', { weekday: 'short' }) }
+  })
+
+  const actionEntries = Object.entries(CHART_ACTIONS) as [keyof typeof CHART_ACTIONS, string][]
+
+  const results = await Promise.all(
+    days.flatMap(({ start, end }, dayIndex) =>
+      actionEntries.map(([key, action]) =>
+        apiClient
+          .get<ListTotal>(
+            `/api/admin/audit?action=${encodeURIComponent(action)}&start_date=${start.toISOString()}&end_date=${end.toISOString()}&page_size=1`
+          )
+          .then((r) => ({ dayIndex, key, total: r.total }))
+          .catch(() => ({ dayIndex, key, total: 0 }))
+      )
+    )
+  )
+
+  return days.map((d, dayIndex) => {
+    const dayResults = results.filter((r) => r.dayIndex === dayIndex)
+    const byKey = Object.fromEntries(dayResults.map((r) => [r.key, r.total])) as Record<
+      keyof typeof CHART_ACTIONS,
+      number
+    >
+    return {
+      name: d.name,
+      chatTurns: byKey.chatTurns ?? 0,
+      workbenchItems: byKey.workbenchItems ?? 0,
+      policyEvaluations: byKey.policyEvaluations ?? 0,
+    }
+  })
+}
+
+// Main Dashboard
 export default function HomePage() {
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [activityData, setActivityData] = useState<ActivityDatum[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const loadDashboard = useCallback(async () => {
+    setIsLoading(true)
+    setLoadError(null)
+    try {
+      const [pending, criticalPending, insights, criticalInsights, policies, dataManager, activity] =
+        await Promise.all([
+          apiClient.get<ListTotal>('/api/workbench?status=pending&page_size=1'),
+          apiClient.get<ListTotal>('/api/workbench?status=pending&priority=critical&page_size=1'),
+          apiClient.get<ListTotal>('/api/ai/insights?status=new&page_size=1'),
+          apiClient.get<ListTotal>('/api/ai/insights?status=new&severity=critical&page_size=1'),
+          apiClient.get<ListTotal>('/api/ai/policies?status=active&page_size=1'),
+          apiClient.get<{ integrations: IntegrationStatusItem[] }>('/api/data-manager/status'),
+          fetchDailyActivity(),
+        ])
+
+      const integrations = dataManager.integrations
+      setStats({
+        pendingWorkbench: pending.total,
+        criticalPendingWorkbench: criticalPending.total,
+        newInsights: insights.total,
+        criticalNewInsights: criticalInsights.total,
+        activePolicies: policies.total,
+        integrationsHealthy: integrations.filter(
+          (i) => i.status === 'healthy' || i.status === 'configured'
+        ).length,
+        integrationsTotal: integrations.length,
+        integrationsLiveChecked: integrations.filter((i) => i.checked_live).length,
+      })
+      setActivityData(activity)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadDashboard()
+  }, [loadDashboard])
+
   return (
     <motion.div
       className='space-y-6'
@@ -305,48 +413,61 @@ export default function HomePage() {
       {/* Hero Section */}
       <HeroSection userName='Developer' />
 
-      {/* Stats Grid - Bento style */}
-      <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
-        <StatCard
-          title='Total Users'
-          value={10400}
-          icon={Icons.users}
-          trend={{ value: '+12%', positive: true }}
-          colorClass='bg-brand-navy'
-          delay={0.1}
-        />
-        <StatCard
-          title='Active Sessions'
-          value={524}
-          icon={Icons.activity}
-          trend={{ value: '+8%', positive: true }}
-          colorClass='bg-brand-cornflower'
-          delay={0.2}
-        />
-        <StatCard
-          title='Success Rate'
-          value={98}
-          suffix='%'
-          icon={Icons.checkCircle}
-          trend={{ value: '+2%', positive: true }}
-          colorClass='bg-brand-purple'
-          delay={0.3}
-        />
-        <StatCard
-          title='AI Confidence'
-          value={96}
-          suffix='%'
-          icon={Icons.sparkles}
-          trend={{ value: 'Stable', positive: true }}
-          colorClass='bg-gradient-to-br from-brand-navy to-brand-purple'
-          delay={0.4}
-        />
-      </div>
+      {loadError && (
+        <div className='rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>
+          Couldn&apos;t load live dashboard data: {loadError}
+        </div>
+      )}
 
-      {/* Activity Chart - Full Width */}
-      <motion.div variants={itemVariants}>
-        <ActivityChart className='col-span-12' />
-      </motion.div>
+      {isLoading ? (
+        <div className='flex items-center justify-center py-16'>
+          <Icons.loader className='h-8 w-8 animate-spin text-brand-cornflower' />
+        </div>
+      ) : (
+        <>
+          {/* Stats Grid - Bento style, backed by real data */}
+          <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
+            <StatCard
+              title='Workbench Queue'
+              value={stats?.pendingWorkbench ?? 0}
+              icon={Icons.workbench}
+              subtitle={`${stats?.criticalPendingWorkbench ?? 0} critical`}
+              colorClass='bg-brand-navy'
+              delay={0.1}
+            />
+            <StatCard
+              title='New Insights'
+              value={stats?.newInsights ?? 0}
+              icon={Icons.lightbulb}
+              subtitle={`${stats?.criticalNewInsights ?? 0} critical`}
+              colorClass='bg-brand-cornflower'
+              delay={0.2}
+            />
+            <StatCard
+              title='Active Policies'
+              value={stats?.activePolicies ?? 0}
+              icon={Icons.shield}
+              subtitle='governing live traffic'
+              colorClass='bg-brand-purple'
+              delay={0.3}
+            />
+            <StatCard
+              title='Integrations Healthy'
+              value={stats?.integrationsHealthy ?? 0}
+              suffix={`/${stats?.integrationsTotal ?? 0}`}
+              icon={Icons.network}
+              subtitle={`${stats?.integrationsLiveChecked ?? 0} live-checked`}
+              colorClass='bg-gradient-to-br from-brand-navy to-brand-purple'
+              delay={0.4}
+            />
+          </div>
+
+          {/* Activity Chart - Full Width */}
+          <motion.div variants={itemVariants}>
+            <ActivityChart className='col-span-12' data={activityData} />
+          </motion.div>
+        </>
+      )}
 
       {/* System Diagnostics */}
       <motion.div

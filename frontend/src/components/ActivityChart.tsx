@@ -15,16 +15,12 @@ import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 
-// Static activity data — deterministic to avoid SSR hydration mismatch
-const ACTIVITY_DATA = [
-  { name: 'Mon', sessions: 315, success: 460, aiCalls: 210 },
-  { name: 'Tue', sessions: 348, success: 485, aiCalls: 228 },
-  { name: 'Wed', sessions: 390, success: 502, aiCalls: 245 },
-  { name: 'Thu', sessions: 425, success: 498, aiCalls: 260 },
-  { name: 'Fri', sessions: 460, success: 520, aiCalls: 275 },
-  { name: 'Sat', sessions: 280, success: 440, aiCalls: 195 },
-  { name: 'Sun', sessions: 310, success: 455, aiCalls: 208 },
-]
+export interface ActivityDatum {
+  name: string
+  chatTurns: number
+  workbenchItems: number
+  policyEvaluations: number
+}
 
 // Custom tooltip component
 function CustomTooltip({
@@ -62,27 +58,25 @@ function CustomTooltip({
 }
 
 interface ActivityChartProps {
+  data: ActivityDatum[]
   className?: string
   title?: string
   description?: string
 }
 
 export function ActivityChart({
+  data,
   className,
   title = 'Weekly Activity',
-  description = 'AI interactions over the past 7 days',
+  description = 'Real agent activity over the past 7 days',
 }: ActivityChartProps) {
-  const data = ACTIVITY_DATA
-
   // Calculate summary stats
-  const totalSessions = data.reduce((acc, d) => acc + d.sessions, 0)
-  const avgSuccess = Math.round(
-    data.reduce((acc, d) => acc + d.success, 0) / data.length
-  )
-  const trend = (
-    ((data[6].sessions - data[0].sessions) / data[0].sessions) *
-    100
-  ).toFixed(1)
+  const totalChatTurns = data.reduce((acc, d) => acc + d.chatTurns, 0)
+  const avgWorkbenchItems = data.length
+    ? Math.round(data.reduce((acc, d) => acc + d.workbenchItems, 0) / data.length)
+    : 0
+  const first = data[0]?.chatTurns ?? 0
+  const trend = first === 0 ? '0.0' : (((data[data.length - 1]?.chatTurns ?? 0) - first) / first * 100).toFixed(1)
   const isPositive = parseFloat(trend) >= 0
 
   return (
@@ -106,19 +100,19 @@ export function ActivityChart({
           <div className='hidden items-center gap-4 sm:flex'>
             <div className='text-right'>
               <p className='text-micro uppercase text-brand-muted'>
-                Total Sessions
+                Total Chat Turns
               </p>
               <p className='font-display text-lg font-bold text-brand-navy'>
-                {totalSessions.toLocaleString()}
+                {totalChatTurns.toLocaleString()}
               </p>
             </div>
             <div className='h-10 w-px bg-border/50' />
             <div className='text-right'>
               <p className='text-micro uppercase text-brand-muted'>
-                Avg Success
+                Avg Workbench Items
               </p>
               <p className='font-display text-lg font-bold text-brand-navy'>
-                {avgSuccess.toLocaleString()}
+                {avgWorkbenchItems.toLocaleString()}
               </p>
             </div>
             <motion.div
@@ -216,11 +210,11 @@ export function ActivityChart({
 
               <Tooltip content={<CustomTooltip />} />
 
-              {/* AI Calls - Background layer */}
+              {/* Policy Evaluations - Background layer */}
               <Area
                 type='monotone'
-                dataKey='aiCalls'
-                name='AI Calls'
+                dataKey='policyEvaluations'
+                name='Policy Evaluations'
                 stroke='#141A42'
                 strokeWidth={1.5}
                 fill='url(#gradientAI)'
@@ -233,11 +227,11 @@ export function ActivityChart({
                 }}
               />
 
-              {/* Success - Middle layer */}
+              {/* Workbench Items - Middle layer */}
               <Area
                 type='monotone'
-                dataKey='success'
-                name='Success'
+                dataKey='workbenchItems'
+                name='Workbench Items'
                 stroke='#7C5CE7'
                 strokeWidth={2}
                 fill='url(#gradientSuccess)'
@@ -250,11 +244,11 @@ export function ActivityChart({
                 }}
               />
 
-              {/* Sessions - Top layer */}
+              {/* Chat Turns - Top layer */}
               <Area
                 type='monotone'
-                dataKey='sessions'
-                name='Sessions'
+                dataKey='chatTurns'
+                name='Chat Turns'
                 stroke='#5B8DEF'
                 strokeWidth={2.5}
                 fill='url(#gradientSessions)'
@@ -274,15 +268,15 @@ export function ActivityChart({
         <div className='mt-4 flex items-center justify-center gap-6 border-t border-border/30 pt-4'>
           <div className='flex items-center gap-2'>
             <div className='h-2 w-2 rounded-full bg-brand-cornflower' />
-            <span className='text-xs text-muted-foreground'>Sessions</span>
+            <span className='text-xs text-muted-foreground'>Chat Turns</span>
           </div>
           <div className='flex items-center gap-2'>
             <div className='h-2 w-2 rounded-full bg-brand-purple' />
-            <span className='text-xs text-muted-foreground'>Success</span>
+            <span className='text-xs text-muted-foreground'>Workbench Items</span>
           </div>
           <div className='flex items-center gap-2'>
             <div className='h-2 w-2 rounded-full bg-brand-navy' />
-            <span className='text-xs text-muted-foreground'>AI Calls</span>
+            <span className='text-xs text-muted-foreground'>Policy Evaluations</span>
           </div>
         </div>
       </CardContent>

@@ -8,6 +8,8 @@ the policies/chat messages/work items/audit logs it creates so runs don't
 accumulate state.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -17,6 +19,7 @@ from app.models.audit import AuditLog
 from app.models.chat import ChatMessage
 from app.models.policy import Policy
 from app.models.work_item import WorkItem
+from app.services import ai_manager
 
 pytestmark = pytest.mark.asyncio
 
@@ -192,3 +195,88 @@ async def test_chat_history_404_for_unknown_session():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/api/ai/chat/does-not-exist")
     assert resp.status_code == 404
+
+
+async def test_chat_disruption_notice_calls_auto_and_appends_summary(monkeypatch):
+    """entity_data shaped like a disruption notice triggers a Master Orchestrator
+    call; its response is appended to the reply and stashed in extra_data, without
+    changing the policy verdict."""
+    monkeypatch.setattr(ai_manager.supervity_auto_client, "is_configured", lambda: True)
+    mock_execute = AsyncMock(return_value={"accepted": True, "message": "Execution started"})
+    monkeypatch.setattr(ai_manager.supervity_auto_client, "execute_workflow", mock_execute)
+
+    session_ids: list[str] = []
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await _create_active_policy(
+                client,
+                name="Auto-approve small amounts",
+                condition={"field": "amount", "op": "lt", "value": 500},
+                action="auto_approve",
+            )
+
+            resp = await client.post(
+                "/api/ai/chat",
+                json={
+                    "message": "supplier delay notice",
+                    "entity_data": {
+                        "amount": 100,
+                        "notice_id": "DN-9001",
+                        "supplier_id": "3022",
+                        "item_number": "SKU-EL-440",
+                        "notice_type": "supplier_delay",
+                    },
+                    "domain": TEST_DOMAIN,
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            session_ids.append(body["session_id"])
+
+            assert body["extra_data"]["verdict"] == "auto_approved"
+            assert body["extra_data"]["auto_response"] == {"accepted": True, "message": "Execution started"}
+            assert "Auto Orchestrator run started" in body["content"]
+
+            mock_execute.assert_awaited_once()
+            call_inputs = mock_execute.await_args.kwargs["inputs"]
+            assert call_inputs == {
+                "notice_id": "DN-9001",
+                "supplier_id": "3022",
+                "item_number": "SKU-EL-440",
+                "notice_type": "supplier_delay",
+                "slack_channel": "#alerts",
+            }
+    finally:
+        _cleanup(session_ids)
+
+
+async def test_chat_without_notice_fields_skips_auto(monkeypatch):
+    """entity_data that doesn't look like a disruption notice never calls Auto,
+    even when Auto is configured — existing (non-notice) chat behavior is
+    unaffected by the Auto integration."""
+    monkeypatch.setattr(ai_manager.supervity_auto_client, "is_configured", lambda: True)
+    mock_execute = AsyncMock()
+    monkeypatch.setattr(ai_manager.supervity_auto_client, "execute_workflow", mock_execute)
+
+    session_ids: list[str] = []
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await _create_active_policy(
+                client,
+                name="Auto-approve small amounts",
+                condition={"field": "amount", "op": "lt", "value": 500},
+                action="auto_approve",
+            )
+
+            resp = await client.post(
+                "/api/ai/chat",
+                json={"message": "please check this", "entity_data": {"id": 1, "amount": 100}, "domain": TEST_DOMAIN},
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            session_ids.append(body["session_id"])
+
+            assert "auto_response" not in body["extra_data"]
+            mock_execute.assert_not_awaited()
+    finally:
+        _cleanup(session_ids)

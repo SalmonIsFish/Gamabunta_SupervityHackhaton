@@ -28,6 +28,11 @@ interface AIContextValue {
   addMessage: (msg: Omit<ChatMessage, 'id' | 'timestamp'>) => void
   clearHistory: () => void
 
+  // Conversation continuity — threaded back to the backend on each turn so
+  // multi-turn chat doesn't reset every message
+  sessionId: string | null
+  setSessionId: (id: string | null) => void
+
   // Typing indicator
   isTyping: boolean
   setIsTyping: (v: boolean) => void
@@ -62,6 +67,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
   const [isManagerOpen, setIsManagerOpen] = useState(false)
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
   const [isTyping, setIsTyping] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
 
   const openManager = useCallback(() => setIsManagerOpen(true), [])
   const closeManager = useCallback(() => setIsManagerOpen(false), [])
@@ -84,7 +90,10 @@ export function AIProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const clearHistory = useCallback(() => setChatHistory([]), [])
+  const clearHistory = useCallback(() => {
+    setChatHistory([])
+    setSessionId(null)
+  }, [])
 
   return (
     <AIContext.Provider
@@ -96,6 +105,8 @@ export function AIProvider({ children }: { children: ReactNode }) {
         chatHistory,
         addMessage,
         clearHistory,
+        sessionId,
+        setSessionId,
         isTyping,
         setIsTyping,
         currentPageContext: pathname,

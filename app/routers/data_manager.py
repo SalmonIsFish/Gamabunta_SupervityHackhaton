@@ -103,8 +103,9 @@ def _auto_status() -> IntegrationStatus:
         status="configured" if present else "not_configured",
         checked_live=False,
         detail=(
-            "SUPERVITY_AUTO_API_KEY is set — not yet a live ping, ai_manager._dispatch() doesn't call out to "
-            "Auto yet (see NEXT_STEPS.md)"
+            "SUPERVITY_AUTO_API_KEY is set — ai_manager._dispatch() calls the Master Orchestrator workflow for "
+            "disruption-notice chat turns, but this status is still config-presence only, not a live ping "
+            "(the only way to probe Auto is executing a real, side-effecting workflow run)"
             if present
             else "SUPERVITY_AUTO_API_KEY not set in this backend's .env"
         ),

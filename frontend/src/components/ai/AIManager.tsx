@@ -61,6 +61,8 @@ export function AIManager() {
     chatHistory,
     addMessage,
     clearHistory,
+    sessionId,
+    setSessionId,
     isTyping,
     setIsTyping,
     currentPageContext,
@@ -120,13 +122,14 @@ export function AIManager() {
         args: Record<string, unknown>
         result?: unknown
       }
-      const data = await apiClient.post<{ response: string; tool_calls?: ToolCallResponse[] }>('/api/ai/chat', {
+      const data = await apiClient.post<{ response: string; tool_calls?: ToolCallResponse[]; session_id: string }>('/api/ai/chat', {
         message: content,
         history: chatHistory.filter(m => !m.isLoading).map(m => ({
           role: m.role,
           content: m.content,
         })),
         context: { page: currentPageContext },
+        session_id: sessionId,
       })
 
       // Remove loading message and add real response
@@ -135,6 +138,7 @@ export function AIManager() {
         content: data.response || 'I apologize, but I encountered an issue processing your request.',
         toolCalls: data.tool_calls,
       })
+      setSessionId(data.session_id)
     } catch {
       addMessage({
         role: 'assistant',
@@ -143,7 +147,7 @@ export function AIManager() {
     } finally {
       setIsTyping(false)
     }
-  }, [addMessage, chatHistory, currentPageContext, setIsTyping])
+  }, [addMessage, chatHistory, currentPageContext, sessionId, setSessionId, setIsTyping])
 
   // Handle quick action click
   const handleQuickAction = (action: string) => {

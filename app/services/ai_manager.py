@@ -2,13 +2,14 @@
 """
 AI Manager chat service.
 
-Handles one chat turn: persists the user's message, optionally runs a
-structured policy check via app/services/policy_engine.py, composes a
-templated (not LLM-generated) reply describing the outcome, and persists it.
+Handles one chat turn: persists the user's message, runs a structured policy
+check via app/services/policy_engine.py (always the gate), optionally kicks
+off the Auto Master Orchestrator workflow via supervity_auto_client.py when
+the message looks like a disruption notice, composes a templated (not
+LLM-generated) reply describing the outcome, and persists it.
 
-`_dispatch` is the seam for later Auto integration: swap its body for a real
-call to auto.supervity.ai's orchestrator and neither handle_chat_message's
-signature nor the router that calls it needs to change.
+`_dispatch` was the seam for Auto integration; now wired for real — see its
+docstring for how the local policy gate and Auto's response compose.
 """
 
 import logging
@@ -20,10 +21,19 @@ from sqlalchemy.orm import Session
 from ..models.audit import AuditCategory, AuditSeverity
 from ..models.chat import ChatMessage, ChatRole
 from ..schemas.policy import PolicyVerdict
-from . import policy_engine
+from . import policy_engine, supervity_auto_client
 from .audit import audit
 
 log = logging.getLogger(__name__)
+
+_NOTICE_REQUIRED_FIELDS = ("notice_id", "supplier_id", "item_number", "notice_type")
+
+
+def _looks_like_disruption_notice(entity_data: dict[str, Any]) -> bool:
+    """True if entity_data has enough fields to hand to the Auto Master
+    Orchestrator, whose workflow requires notice_id/supplier_id/item_number/
+    notice_type (see supervity_auto_client.py's docstring)."""
+    return all(entity_data.get(field) for field in _NOTICE_REQUIRED_FIELDS)
 
 
 def _compose_reply(result: policy_engine.PolicyEvaluationResult) -> str:
@@ -49,10 +59,17 @@ async def _dispatch(
     """
     Decide what to do about this message and produce (reply_text, extra_data).
 
-    Today this runs the local structured policy engine directly whenever the
-    caller supplies entity_data + domain. This is the integration seam: a
-    later version can dispatch to auto.supervity.ai instead, as long as it
-    keeps returning (reply_text, extra_data).
+    The local structured policy engine is always the gate: it runs first and
+    its verdict is never overridden, regardless of whether Auto is
+    configured, reachable, or successful this turn — a policy conflict still
+    routes to the Workbench even if the Auto call below fails or is skipped.
+
+    When entity_data looks like a disruption notice, this also kicks off the
+    Auto Master Orchestrator workflow (informational — auto_response is
+    appended to the reply and stashed in extra_data, it doesn't change the
+    verdict). That call is fire-and-forget: POST /workflow-runs/execute
+    returns {"accepted": bool, "message": str} immediately and the actual
+    run proceeds asynchronously on Auto's side (confirmed via a live call).
     """
     if not (entity_data and domain):
         return "No active policies matched for this domain.", {}
@@ -65,11 +82,29 @@ async def _dispatch(
         db=db,
     )
     reply = _compose_reply(result)
-    extra_data = {
+    extra_data: dict[str, Any] = {
         "verdict": result.verdict.value,
         "matched_policy_ids": [m.id for m in result.matched_policies],
         "workbench_item_id": result.workbench_item_id,
     }
+
+    if supervity_auto_client.is_configured() and _looks_like_disruption_notice(entity_data):
+        auto_response = await supervity_auto_client.execute_workflow(
+            inputs={
+                "notice_id": str(entity_data.get("notice_id", "")),
+                "supplier_id": str(entity_data.get("supplier_id", "")),
+                "item_number": str(entity_data.get("item_number", "")),
+                "notice_type": str(entity_data.get("notice_type", domain)),
+                "slack_channel": str(entity_data.get("slack_channel", "#alerts")),
+            },
+        )
+        if auto_response is not None:
+            extra_data["auto_response"] = auto_response
+            if auto_response.get("accepted"):
+                reply = f"{reply} Auto Orchestrator run started: {auto_response.get('message', 'execution accepted')}."
+            else:
+                reply = f"{reply} Auto Orchestrator did not accept the run: {auto_response.get('message', 'no reason given')}."
+
     return reply, extra_data
 
 
