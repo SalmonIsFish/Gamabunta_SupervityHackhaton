@@ -33,6 +33,7 @@ from ..schemas.work_item import (
     WorkItemResponse,
 )
 from ..security import get_current_user
+from ..services import dropbox_client
 from ..services.audit import audit
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,36 @@ _RESOLUTION_TO_STATUS = {
     WorkItemResolution.MODIFIED.value: WorkItemStatus.RESOLVED.value,
     WorkItemResolution.REJECTED.value: WorkItemStatus.REJECTED.value,
 }
+
+
+async def _mirror_commander_queue(db: Session) -> None:
+    """
+    Best-effort mirror of the open (pending/in_review) Workbench queue to
+    Dropbox as a secondary, human-browsable "Commander Queue" view — real
+    data kept genuinely in sync, not a one-off decorative write. No-ops
+    silently if Dropbox isn't configured or the write fails.
+    """
+    if not dropbox_client.is_configured():
+        return
+    open_items = (
+        db.query(WorkItem)
+        .filter(WorkItem.status.in_([WorkItemStatus.PENDING.value, WorkItemStatus.IN_REVIEW.value]))
+        .order_by(asc(WorkItem.created_at))
+        .all()
+    )
+    snapshot = [
+        {
+            "id": item.id,
+            "title": item.title,
+            "exception_type": item.exception_type,
+            "priority": item.priority,
+            "status": item.status,
+            "source_agent": item.source_agent,
+            "created_at": item.created_at,
+        }
+        for item in open_items
+    ]
+    await dropbox_client.upload_json("/commander-queue/pending.json", snapshot)
 
 
 def _apply_work_item_filters(query, filters: dict):
@@ -111,6 +142,7 @@ async def create_work_item(
             "source_agent": work_item.source_agent,
         },
     )
+    await _mirror_commander_queue(db)
 
     return WorkItemResponse.model_validate(work_item)
 
@@ -240,6 +272,7 @@ async def resolve_work_item(
             "new_status": work_item.status,
         },
     )
+    await _mirror_commander_queue(db)
 
     return WorkItemActionResponse(
         success=True,
