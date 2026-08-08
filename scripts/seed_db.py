@@ -100,6 +100,19 @@ PROCUREMENT_POLICIES = [
         "action": "require_approval",
         "priority": 8,
     },
+    {
+        "name": "Significant Delay Notification Approval",
+        "description": (
+            "A customer re-promise pushing an order more than 3 days past its original "
+            "promised_date must be approved by a human before the notification is 'sent' "
+            "(recorded) — not logged and delivered silently."
+        ),
+        "policy_type": PolicyType.STRUCTURED.value,
+        "domain": "procurement",
+        "condition": {"field": "delay_days", "op": "gt", "value": 3},
+        "action": "require_approval",
+        "priority": 12,
+    },
 ]
 
 
