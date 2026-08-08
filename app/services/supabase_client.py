@@ -57,3 +57,28 @@ async def select(table: str, params: Optional[dict[str, Any]] = None) -> list[di
     except httpx.HTTPError as exc:
         log.warning("Supabase read failed for table '%s': %s", table, exc)
         return []
+
+
+async def upsert(table: str, rows: list[dict[str, Any]], on_conflict: str) -> None:
+    """
+    POST rows to a Supabase table via PostgREST, upserting on `on_conflict`
+    (a comma-separated column list matching a unique constraint on the
+    table). Unlike `select()`, this raises on failure — seed scripts need to
+    know if a write didn't happen, not silently continue.
+    """
+    base_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not base_url or not service_key:
+        raise RuntimeError("SUPABASE_URL/SUPABASE_SERVICE_KEY not configured")
+
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+    }
+    url = f"{base_url}/rest/v1/{table}?on_conflict={on_conflict}"
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        response = await client.post(url, headers=headers, json=rows)
+        response.raise_for_status()

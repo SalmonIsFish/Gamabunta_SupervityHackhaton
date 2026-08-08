@@ -87,6 +87,19 @@ PROCUREMENT_POLICIES = [
         "action": "escalate",
         "priority": 15,
     },
+    {
+        "name": "Close Recovery Plans Escalation",
+        "description": (
+            "When two or more recovery plans have similar outcomes (within the "
+            "Recovery Planner's own cost-closeness threshold), a human must choose "
+            "between them rather than the agent silently picking one."
+        ),
+        "policy_type": PolicyType.STRUCTURED.value,
+        "domain": "procurement",
+        "condition": {"field": "plans_are_close", "op": "eq", "value": True},
+        "action": "require_approval",
+        "priority": 8,
+    },
 ]
 
 

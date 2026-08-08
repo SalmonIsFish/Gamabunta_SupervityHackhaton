@@ -33,6 +33,45 @@ log = logging.getLogger(__name__)
 
 _NOTICE_REQUIRED_FIELDS = ("notice_id", "supplier_id", "item_number", "notice_type")
 
+# The 5 Round 2 Operators, individually re-triggerable from AI Manager chat —
+# workflow IDs are each Operator's stable rootWorkflowId (confirmed against
+# the Master Orchestrator's own ID, which matches SUPERVITY_AUTO_ORCHESTRATOR_
+# WORKFLOW_ID exactly, so these don't drift even as a workflow's steps are
+# edited). required_inputs lists what the model must extract before firing —
+# anything not on this list for a given operator is never sent, since an
+# Operator that takes no inputs (per its own Auto trigger form) would reject
+# unexpected ones.
+_OPERATOR_REGISTRY: dict[str, dict[str, Any]] = {
+    "supplier cascade mapper": {
+        "workflow_id": "019fcd28-2dab-7000-a5f9-2eb2bf71814b",
+        "required_inputs": ["failed_supplier_id"],
+    },
+    "multi-event prioritizer": {
+        "workflow_id": "019fcd2e-bc0e-7000-bdc0-1713a205a5d4",
+        "required_inputs": [],
+    },
+    "cost & clause evaluator": {
+        "workflow_id": "019fcd38-7d0e-7000-98b1-e239761a9654",
+        "required_inputs": ["supplier_id", "item_number"],
+    },
+    "logistics / port-cutoff monitor": {
+        "workflow_id": "019fcd3d-2ccf-7000-a9fa-225ec46b228c",
+        "required_inputs": [],
+    },
+    "inventory reallocation planner": {
+        "workflow_id": "019fcd45-abb6-7000-9067-f1ff0e5ce207",
+        "required_inputs": [],
+    },
+    "demand consolidation optimizer": {
+        "workflow_id": "019fe20e-cd27-7000-8111-b5399b73ba9e",
+        "required_inputs": [],
+    },
+    "recovery planner": {
+        "workflow_id": "019fe1e0-546e-7000-b3a8-0c75b8c4e8a3",
+        "required_inputs": ["supplier_id", "item_number"],
+    },
+}
+
 _FREEFORM_SYSTEM_PROMPT = """You are the AI Manager for a procurement/operations Command Center. \
 You answer questions ONLY using the CONTEXT JSON given to you below — never invent facts, numbers, \
 titles, or records that are not present in it. If the context doesn't contain enough to answer, say \
@@ -44,10 +83,21 @@ CONTEXT or the user's own message, set trigger_workflow to true and fill in thos
 exactly as given. Otherwise set trigger_workflow to false and leave those fields null. Never guess \
 or invent a notice_id/supplier_id/item_number/notice_type that wasn't actually provided to you.
 
+Separately, if the user is asking you to run, re-run, or trigger one specific named Operator \
+(rather than the whole disruption-notice flow above), set trigger_operator to that Operator's exact \
+name from this list, and nothing else: "Supplier Cascade Mapper", "Multi-Event Prioritizer", \
+"Cost & Clause Evaluator", "Logistics / Port-Cutoff Monitor", "Inventory Reallocation Planner", \
+"Demand Consolidation Optimizer", "Recovery Planner". \
+Fill operator_inputs with only the specific fields that Operator needs, using only values the user \
+or the CONTEXT actually gave you — never invent a supplier_id, item_number, or any other value. If \
+the user didn't ask to trigger a specific named Operator, set trigger_operator to null and \
+operator_inputs to an empty object.
+
 Respond with ONLY a single JSON object, no other text before or after it, in exactly this shape:
 {"answer": "<your natural-language answer to the user, 1-4 sentences>", "trigger_workflow": \
 <true or false>, "notice_id": <string or null>, "supplier_id": <string or null>, "item_number": \
-<string or null>, "notice_type": <string or null>}"""
+<string or null>, "notice_type": <string or null>, "trigger_operator": <string or null>, \
+"operator_inputs": <object>}"""
 
 
 def _looks_like_disruption_notice(entity_data: dict[str, Any]) -> bool:
@@ -118,13 +168,14 @@ def _parse_llm_json(raw: str) -> Optional[dict[str, Any]]:
         return None
 
 
-async def _handle_freeform_message(db: Session, message: str) -> tuple[str, dict[str, Any]]:
+async def _handle_freeform_message(db: Session, session_id: str) -> tuple[str, dict[str, Any]]:
     """
     Free-text chat (no structured entity_data/domain): ground an answer in
-    real Workbench/Insights/Policies records via OpenRouter, and — only when
-    the model extracts all four required fields from real context or the
-    user's own message, never invented — trigger the Auto Master
-    Orchestrator the same way the structured path does.
+    real Workbench/Insights/Policies records plus this session's own prior
+    turns via OpenRouter, and — only when the model extracts all four
+    required fields from real context or the user's own message, never
+    invented — trigger the Auto Master Orchestrator the same way the
+    structured path does.
     """
     fallback = (
         "I can answer questions about current Workbench items, Insights, and Policies, or trigger "
@@ -135,10 +186,24 @@ async def _handle_freeform_message(db: Session, message: str) -> tuple[str, dict
         return fallback, {}
 
     context = _gather_context(db)
+    # The current user turn is already persisted (handle_chat_message commits
+    # it before calling _dispatch), so this query's last row IS the message
+    # being answered — no separate "current message" turn needs appending.
+    prior_turns = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+        .limit(20)
+        .all()
+    )
+    conversation = [
+        {"role": "assistant" if m.role == ChatRole.ASSISTANT.value else "user", "content": m.content}
+        for m in prior_turns
+    ]
     raw = await openrouter_client.chat_completion(
         messages=[
             {"role": "system", "content": f"{_FREEFORM_SYSTEM_PROMPT}\n\nCONTEXT:\n{json.dumps(context)}"},
-            {"role": "user", "content": message},
+            *conversation,
         ]
     )
     if raw is None:
@@ -167,6 +232,29 @@ async def _handle_freeform_message(db: Session, message: str) -> tuple[str, dict
                 else:
                     answer += f" Tried to trigger the Auto Orchestrator, but it wasn't accepted: {auto_response.get('message', 'no reason given')}."
 
+    operator_name = parsed.get("trigger_operator")
+    if operator_name and supervity_auto_client.is_configured():
+        operator = _OPERATOR_REGISTRY.get(str(operator_name).strip().lower())
+        if operator is None:
+            answer += f" I don't have a re-triggerable Operator named '{operator_name}'."
+        else:
+            operator_inputs = parsed.get("operator_inputs") or {}
+            missing = [f for f in operator["required_inputs"] if not operator_inputs.get(f)]
+            if missing:
+                answer += f" I can re-run {operator_name}, but I still need: {', '.join(missing)}."
+            else:
+                auto_response = await supervity_auto_client.execute_workflow(
+                    inputs={k: str(v) for k, v in operator_inputs.items()},
+                    workflow_id=operator["workflow_id"],
+                )
+                extra_data["triggered_operator"] = operator_name
+                if auto_response is not None:
+                    extra_data["auto_response"] = auto_response
+                    if auto_response.get("accepted"):
+                        answer += f" Triggered {operator_name}: {auto_response.get('message', 'execution accepted')}."
+                    else:
+                        answer += f" Tried to trigger {operator_name}, but it wasn't accepted: {auto_response.get('message', 'no reason given')}."
+
     return answer, extra_data
 
 
@@ -176,6 +264,7 @@ async def _dispatch(
     entity_data: Optional[dict[str, Any]],
     domain: Optional[str],
     source_agent: Optional[str],
+    session_id: str,
 ) -> tuple[str, dict[str, Any]]:
     """
     Decide what to do about this message and produce (reply_text, extra_data).
@@ -198,7 +287,7 @@ async def _dispatch(
       (never invented) notice fields from the conversation.
     """
     if not (entity_data and domain):
-        return await _handle_freeform_message(db, message)
+        return await _handle_freeform_message(db, session_id)
 
     result = await policy_engine.evaluate(
         domain=domain,
@@ -257,7 +346,7 @@ async def handle_chat_message(
     db.add(user_message)
     db.commit()
 
-    reply_text, extra_data = await _dispatch(db, message, entity_data, domain, source_agent)
+    reply_text, extra_data = await _dispatch(db, message, entity_data, domain, source_agent, session_id)
 
     assistant_message = ChatMessage(
         session_id=session_id,
