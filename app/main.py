@@ -42,6 +42,7 @@ from .routers import (
     auth_router,
     data_manager_router,
     examples_router,
+    geo_router,
     health_router,
     insights_router,
     items_router,
@@ -170,6 +171,9 @@ api_router.include_router(ai_manager_router)
 
 # Data Manager (live integration registry)
 api_router.include_router(data_manager_router)
+
+# Geo (operational map data)
+api_router.include_router(geo_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)

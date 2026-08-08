@@ -11,6 +11,7 @@ from .audit import router as audit_router
 from .auth import router as auth_router
 from .data_manager import router as data_manager_router
 from .examples import router as examples_router
+from .geo import router as geo_router
 from .health import router as health_router
 from .insights import router as insights_router
 from .items import router as items_router
@@ -29,4 +30,5 @@ __all__ = [
     "insights_router",
     "ai_manager_router",
     "data_manager_router",
+    "geo_router",
 ]
