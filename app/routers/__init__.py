@@ -9,6 +9,7 @@ from .admin import router as admin_router
 from .ai_manager import router as ai_manager_router
 from .audit import router as audit_router
 from .auth import router as auth_router
+from .dashboard import router as dashboard_router
 from .data_manager import router as data_manager_router
 from .examples import router as examples_router
 from .geo import router as geo_router
@@ -31,4 +32,5 @@ __all__ = [
     "ai_manager_router",
     "data_manager_router",
     "geo_router",
+    "dashboard_router",
 ]

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CardWatermark } from '@/components/ui/card-watermark'
 import { Icons } from '@/components/ui/icons'
 import { ActivityChart, type ActivityDatum } from '@/components/ActivityChart'
+import { InventoryChart, type InventoryDatum } from '@/components/InventoryChart'
 import { cn } from '@/lib/utils'
 
 // Animation variants
@@ -185,7 +186,33 @@ function HeroSection({ userName }: { userName?: string }) {
   )
 }
 
-// Diagnostics Card
+// Diagnostics Card — dev tooling, not something a judge needs to see by
+// default on the primary Command Center view, so it's collapsed here.
+function DiagnosticsSection() {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="col-span-12">
+      <button
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-brand-navy"
+      >
+        {isOpen ? (
+          <Icons.chevronUp className="h-4 w-4" />
+        ) : (
+          <Icons.chevronDown className="h-4 w-4" />
+        )}
+        Developer Diagnostics
+      </button>
+      {isOpen && (
+        <div className="mt-4 grid gap-6 lg:grid-cols-12">
+          <DiagnosticsCard />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DiagnosticsCard() {
   const [apiResponse, setApiResponse] = useState<string>('')
   const [adminResponse, setAdminResponse] = useState<string>('')
@@ -304,6 +331,7 @@ interface DashboardStats {
   integrationsLiveChecked: number
   totalNetSavings: number
   expediteDecisionsEvaluated: number
+  disruptionsBySeverity: Record<'low' | 'medium' | 'high' | 'critical', number>
 }
 
 interface ListTotal {
@@ -314,6 +342,8 @@ interface BusinessImpactMetrics {
   total_net_savings: number
   expedite_decisions_evaluated: number
 }
+
+const SEVERITY_LEVELS = ['low', 'medium', 'high', 'critical'] as const
 
 interface IntegrationStatusItem {
   status: 'healthy' | 'unhealthy' | 'configured' | 'not_configured' | 'external'
@@ -370,6 +400,7 @@ async function fetchDailyActivity(): Promise<ActivityDatum[]> {
 export default function HomePage() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [activityData, setActivityData] = useState<ActivityDatum[]>([])
+  const [inventoryData, setInventoryData] = useState<InventoryDatum[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -377,17 +408,35 @@ export default function HomePage() {
     setIsLoading(true)
     setLoadError(null)
     try {
-      const [pending, criticalPending, insights, criticalInsights, policies, dataManager, activity, businessImpact] =
-        await Promise.all([
-          apiClient.get<ListTotal>('/api/workbench?status=pending&page_size=1'),
-          apiClient.get<ListTotal>('/api/workbench?status=pending&priority=critical&page_size=1'),
-          apiClient.get<ListTotal>('/api/ai/insights?status=new&page_size=1'),
-          apiClient.get<ListTotal>('/api/ai/insights?status=new&severity=critical&page_size=1'),
-          apiClient.get<ListTotal>('/api/ai/policies?status=active&page_size=1'),
-          apiClient.get<{ integrations: IntegrationStatusItem[] }>('/api/data-manager/status'),
-          fetchDailyActivity(),
-          apiClient.get<BusinessImpactMetrics>('/api/ai/policies/metrics/business-impact'),
-        ])
+      const [
+        pending,
+        criticalPending,
+        insights,
+        criticalInsights,
+        policies,
+        dataManager,
+        activity,
+        businessImpact,
+        inventory,
+        severityCounts,
+      ] = await Promise.all([
+        apiClient.get<ListTotal>('/api/workbench?status=pending&page_size=1'),
+        apiClient.get<ListTotal>('/api/workbench?status=pending&priority=critical&page_size=1'),
+        apiClient.get<ListTotal>('/api/ai/insights?status=new&page_size=1'),
+        apiClient.get<ListTotal>('/api/ai/insights?status=new&severity=critical&page_size=1'),
+        apiClient.get<ListTotal>('/api/ai/policies?status=active&page_size=1'),
+        apiClient.get<{ integrations: IntegrationStatusItem[] }>('/api/data-manager/status'),
+        fetchDailyActivity(),
+        apiClient.get<BusinessImpactMetrics>('/api/ai/policies/metrics/business-impact'),
+        apiClient.get<{ items: InventoryDatum[] }>('/api/dashboard/inventory-summary'),
+        Promise.all(
+          SEVERITY_LEVELS.map((level) =>
+            apiClient
+              .get<ListTotal>(`/api/workbench?status=pending&priority=${level}&page_size=1`)
+              .then((r) => [level, r.total] as const)
+          )
+        ),
+      ])
 
       const integrations = dataManager.integrations
       setStats({
@@ -403,8 +452,10 @@ export default function HomePage() {
         integrationsLiveChecked: integrations.filter((i) => i.checked_live).length,
         totalNetSavings: businessImpact.total_net_savings,
         expediteDecisionsEvaluated: businessImpact.expedite_decisions_evaluated,
+        disruptionsBySeverity: Object.fromEntries(severityCounts) as DashboardStats['disruptionsBySeverity'],
       })
       setActivityData(activity)
+      setInventoryData(inventory.items)
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
     } finally {
@@ -488,19 +539,46 @@ export default function HomePage() {
             />
           </div>
 
+          {/* Open Disruptions by Severity — data already fetched for the
+              Workbench Queue stat card, just broken down further here */}
+          <motion.div variants={itemVariants} className='grid grid-cols-2 gap-4 sm:grid-cols-4'>
+            {SEVERITY_LEVELS.map((level) => (
+              <div
+                key={level}
+                className='rounded-xl border border-border/50 bg-white/60 px-4 py-3 text-center'
+              >
+                <p className='text-micro uppercase text-brand-muted'>{level}</p>
+                <p
+                  className={cn(
+                    'font-display text-2xl font-bold',
+                    level === 'critical'
+                      ? 'text-red-600'
+                      : level === 'high'
+                        ? 'text-amber-600'
+                        : 'text-brand-navy'
+                  )}
+                >
+                  {stats?.disruptionsBySeverity?.[level] ?? 0}
+                </p>
+              </div>
+            ))}
+          </motion.div>
+
           {/* Activity Chart - Full Width */}
           <motion.div variants={itemVariants}>
             <ActivityChart className='col-span-12' data={activityData} />
           </motion.div>
+
+          {/* Inventory Position - Full Width */}
+          <motion.div variants={itemVariants}>
+            <InventoryChart className='col-span-12' data={inventoryData} />
+          </motion.div>
         </>
       )}
 
-      {/* System Diagnostics */}
-      <motion.div
-        className='grid gap-6 lg:grid-cols-12'
-        variants={itemVariants}
-      >
-        <DiagnosticsCard />
+      {/* System Diagnostics — collapsed by default, dev tooling only */}
+      <motion.div variants={itemVariants}>
+        <DiagnosticsSection />
       </motion.div>
     </motion.div>
   )

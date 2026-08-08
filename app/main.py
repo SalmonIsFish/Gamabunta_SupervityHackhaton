@@ -40,6 +40,7 @@ from .routers import (
     ai_manager_router,
     audit_router,
     auth_router,
+    dashboard_router,
     data_manager_router,
     examples_router,
     geo_router,
@@ -174,6 +175,9 @@ api_router.include_router(data_manager_router)
 
 # Geo (operational map data)
 api_router.include_router(geo_router)
+
+# Dashboard (summary/aggregate data)
+api_router.include_router(dashboard_router)
 
 # Authorization pattern examples
 api_router.include_router(examples_router)
