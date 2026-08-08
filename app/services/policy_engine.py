@@ -1,13 +1,18 @@
 # app/services/policy_engine.py
 """
-Structured Policy Evaluation Engine.
+Policy Evaluation Engine — structured (deterministic) and natural-language.
 
-Evaluates ACTIVE, STRUCTURED policies for a domain against a runtime entity
-(a lead, an invoice, a deal — whatever the calling agent is deciding about).
-Natural-language policies are interpreted by an LLM elsewhere and are out of
-scope here (see docs/command-center-guide.md, "How Policies Are Evaluated").
+Evaluates ACTIVE policies for a domain against a runtime entity (a lead, an
+invoice, a deal — whatever the calling agent is deciding about). Structured
+policies are evaluated deterministically against Policy.condition; natural-
+language policies (Policy.natural_language_rule) are interpreted by an LLM
+via OpenRouter (see _evaluate_natural_language_policy) — no model-specific
+key required, since OpenRouter already fronts whichever model OPENROUTER_MODEL
+names, same client this backend already uses for the AI Manager and Workbench
+recommendations. Both types feed the same permissive/gating bucket logic and
+the same verdict.
 
-Condition DSL (stored on Policy.condition):
+Condition DSL (stored on Policy.condition, structured policies only):
     {"all": [<node>, ...]}                     -- AND
     {"any": [<node>, ...]}                      -- OR
     {"field": "amount", "op": "gt", "value": 50000}   -- leaf comparison
@@ -22,6 +27,7 @@ Verdicts:
     blocked_pending_review -- both matched -- conflicting instructions, a WorkItem is raised
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -38,6 +44,7 @@ from ..models.work_item import (
     WorkItemStatus,
 )
 from ..schemas.policy import MatchedPolicySummary, PolicyVerdict
+from . import openrouter_client
 from .audit import audit
 
 log = logging.getLogger(__name__)
@@ -113,6 +120,49 @@ def evaluate_condition(condition: Optional[dict[str, Any]], entity_data: dict[st
 
     actual = _resolve_field(entity_data, field_path)
     return _apply_op(op, actual, condition.get("value"))
+
+
+async def _evaluate_natural_language_policy(
+    policy: Policy, entity_data: dict[str, Any]
+) -> Optional[dict[str, Any]]:
+    """
+    Ask the LLM whether a natural-language rule applies to this entity, and
+    if so what action it implies. Returns None if the rule doesn't apply, if
+    OpenRouter isn't configured, or if the response can't be parsed — all of
+    which the caller treats as "this policy didn't match," never guessing.
+    """
+    if not policy.natural_language_rule or not openrouter_client.is_configured():
+        return None
+
+    prompt = (
+        "You are a policy compliance engine. Decide whether the following business rule "
+        "applies to the given data, and if so, what action it requires.\n\n"
+        f"Rule: {policy.natural_language_rule}\n\n"
+        f"Data: {json.dumps(entity_data)}\n\n"
+        "Respond with ONLY a JSON object, no other text: "
+        '{"applies": <true or false>, "action": "<one of: auto_approve, require_approval, '
+        'flag_for_review, escalate, block>", "reasoning": "<one sentence>"}. '
+        "If the rule does not apply given this data, set applies to false."
+    )
+    raw = await openrouter_client.chat_completion(messages=[{"role": "user", "content": prompt}], temperature=0)
+    if raw is None:
+        return None
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").removeprefix("json").strip()
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        log.warning("Could not parse natural-language policy response as JSON: %r", raw[:200])
+        return None
+
+    if not parsed.get("applies"):
+        return None
+    action = parsed.get("action")
+    if action not in (_PERMISSIVE_ACTIONS | _GATING_ACTIONS):
+        action = "flag_for_review"  # unrecognized action from the model — fail safe as gating
+    return {"action": action, "reasoning": parsed.get("reasoning", "")}
 
 
 def _resolve_actions(policy: Policy) -> list[dict[str, Any]]:
@@ -207,7 +257,8 @@ async def evaluate(
     db: Session,
 ) -> PolicyEvaluationResult:
     """
-    Evaluate all ACTIVE structured policies for `domain` against `entity_data`.
+    Evaluate all ACTIVE policies (structured and natural-language) for
+    `domain` against `entity_data`.
 
     Every matched policy has its trigger_count incremented and last_evaluated_at
     refreshed. If permissive and gating policies both match, a WorkItem is raised
@@ -216,7 +267,6 @@ async def evaluate(
     policies = (
         db.query(Policy)
         .filter(Policy.status == PolicyStatus.ACTIVE.value)
-        .filter(Policy.policy_type == PolicyType.STRUCTURED.value)
         .filter(Policy.domain == domain)
         .order_by(Policy.priority.asc(), Policy.id.asc())
         .all()
@@ -225,13 +275,24 @@ async def evaluate(
     matched: list[MatchedPolicySummary] = []
     permissive_matches: list[Policy] = []
     gating_matches: list[Policy] = []
+    nl_reasoning: dict[int, str] = {}
     now = datetime.now(timezone.utc)
 
     for policy in policies:
-        if not evaluate_condition(policy.condition, entity_data):
+        nl_result: Optional[dict[str, Any]] = None
+        if policy.policy_type == PolicyType.STRUCTURED.value:
+            if not evaluate_condition(policy.condition, entity_data):
+                continue
+            policy_actions = _resolve_actions(policy)
+        elif policy.policy_type == PolicyType.NATURAL_LANGUAGE.value:
+            nl_result = await _evaluate_natural_language_policy(policy, entity_data)
+            if nl_result is None:
+                continue
+            policy_actions = [{"type": nl_result["action"], "value": None, "params": None}]
+            nl_reasoning[policy.id] = nl_result["reasoning"]
+        else:
             continue
 
-        policy_actions = _resolve_actions(policy)
         touched_permissive = False
         touched_gating = False
 
@@ -298,7 +359,20 @@ async def evaluate(
                 "entity_id": entity_id,
                 "field_count": len(entity_data),
             },
+            # Full entity_data (not just the summary above) so numeric business
+            # fields an Operator proposed — net_savings, penalty_amount, etc. —
+            # survive past this one request. Without this, evaluate() was the
+            # only place that ever saw those numbers; they were evaluated for
+            # a verdict and then discarded, with no way to ever answer "how
+            # much has this actually saved" (see policies.py's /metrics
+            # endpoint, which sums this back out for the Dashboard).
+            "entity_data": entity_data,
             "workbench_item_id": workbench_item_id,
+            # Populated only for matched natural-language policies (see
+            # _evaluate_natural_language_policy) — the LLM's one-sentence
+            # justification for why the rule applied, kept for auditability
+            # since there's no deterministic condition to point back to.
+            "natural_language_reasoning": nl_reasoning,
         },
     )
 

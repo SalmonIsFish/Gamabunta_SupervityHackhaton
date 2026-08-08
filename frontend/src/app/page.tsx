@@ -91,6 +91,7 @@ function AnimatedNumber({
 interface StatCardProps {
   title: string
   value: number
+  prefix?: string
   suffix?: string
   icon: React.ElementType
   subtitle?: string
@@ -101,6 +102,7 @@ interface StatCardProps {
 function StatCard({
   title,
   value,
+  prefix = '',
   suffix = '',
   icon: Icon,
   subtitle,
@@ -127,6 +129,7 @@ function StatCard({
               </p>
               {/* Display number */}
               <p className='font-display text-[2.25rem] font-bold leading-none tracking-tight text-brand-navy'>
+                {prefix}
                 <AnimatedNumber value={value} suffix={suffix} />
               </p>
               {/* Real, honestly-labeled context — no fabricated trend % */}
@@ -299,10 +302,17 @@ interface DashboardStats {
   integrationsHealthy: number
   integrationsTotal: number
   integrationsLiveChecked: number
+  totalNetSavings: number
+  expediteDecisionsEvaluated: number
 }
 
 interface ListTotal {
   total: number
+}
+
+interface BusinessImpactMetrics {
+  total_net_savings: number
+  expedite_decisions_evaluated: number
 }
 
 interface IntegrationStatusItem {
@@ -367,7 +377,7 @@ export default function HomePage() {
     setIsLoading(true)
     setLoadError(null)
     try {
-      const [pending, criticalPending, insights, criticalInsights, policies, dataManager, activity] =
+      const [pending, criticalPending, insights, criticalInsights, policies, dataManager, activity, businessImpact] =
         await Promise.all([
           apiClient.get<ListTotal>('/api/workbench?status=pending&page_size=1'),
           apiClient.get<ListTotal>('/api/workbench?status=pending&priority=critical&page_size=1'),
@@ -376,6 +386,7 @@ export default function HomePage() {
           apiClient.get<ListTotal>('/api/ai/policies?status=active&page_size=1'),
           apiClient.get<{ integrations: IntegrationStatusItem[] }>('/api/data-manager/status'),
           fetchDailyActivity(),
+          apiClient.get<BusinessImpactMetrics>('/api/ai/policies/metrics/business-impact'),
         ])
 
       const integrations = dataManager.integrations
@@ -390,6 +401,8 @@ export default function HomePage() {
         ).length,
         integrationsTotal: integrations.length,
         integrationsLiveChecked: integrations.filter((i) => i.checked_live).length,
+        totalNetSavings: businessImpact.total_net_savings,
+        expediteDecisionsEvaluated: businessImpact.expedite_decisions_evaluated,
       })
       setActivityData(activity)
     } catch (err) {
@@ -426,7 +439,20 @@ export default function HomePage() {
       ) : (
         <>
           {/* Stats Grid - Bento style, backed by real data */}
-          <div className='grid grid-cols-2 gap-4 lg:grid-cols-4'>
+          <div className='grid grid-cols-2 gap-4 lg:grid-cols-5'>
+            <StatCard
+              title='Net Savings'
+              value={stats?.totalNetSavings ?? 0}
+              prefix='RM '
+              icon={Icons.trendingUp}
+              subtitle={
+                stats?.expediteDecisionsEvaluated
+                  ? `${stats.expediteDecisionsEvaluated} expedite decision(s) evaluated`
+                  : 'no expedite decisions evaluated yet'
+              }
+              colorClass='bg-emerald-600'
+              delay={0.05}
+            />
             <StatCard
               title='Workbench Queue'
               value={stats?.pendingWorkbench ?? 0}

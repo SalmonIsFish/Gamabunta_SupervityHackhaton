@@ -40,16 +40,24 @@ def _default_workflow_id() -> str:
 def _build_envs() -> dict[str, str]:
     """
     Only forward env vars this backend actually holds credentials for,
-    renamed to the workflow's declared env names (SUPABASE_TOKEN, not
-    SUPABASE_SERVICE_KEY). SLACK_TOKEN is deliberately never sourced here —
-    this backend has no credential for it (see data_manager.py) — Auto is
-    expected to use its own workspace-configured value when it's omitted.
+    renamed to the workflow's declared env names. The Master Orchestrator's
+    own runtime inputs are literally labeled SUPABASE_URL/SUPABASE_KEY (per
+    its Auto builder UI) — SUPABASE_TOKEN is also sent for compatibility
+    with sub-workflows that declared the older name. POLICY_API_URL points
+    at this backend's own public tunnel so the Orchestrator's fanned-out
+    Operators (which POST their results back here) can reach it; SLACK_TOKEN
+    is deliberately never sourced here — this backend has no credential for
+    it (see data_manager.py) — Auto is expected to use its own
+    workspace-configured value when it's omitted.
     """
     envs: dict[str, str] = {}
     if os.environ.get("SUPABASE_URL"):
         envs["SUPABASE_URL"] = os.environ["SUPABASE_URL"]
     if os.environ.get("SUPABASE_SERVICE_KEY"):
+        envs["SUPABASE_KEY"] = os.environ["SUPABASE_SERVICE_KEY"]
         envs["SUPABASE_TOKEN"] = os.environ["SUPABASE_SERVICE_KEY"]
+    if os.environ.get("PUBLIC_BACKEND_URL"):
+        envs["POLICY_API_URL"] = os.environ["PUBLIC_BACKEND_URL"].rstrip("/") + "/api/ai/policies/evaluate"
     return envs
 
 

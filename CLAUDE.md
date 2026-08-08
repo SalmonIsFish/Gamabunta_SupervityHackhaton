@@ -10,6 +10,24 @@ This is the **AutoPilot Template** — a FastAPI + Next.js starter kit for the A
 
 **Critical constraint:** all agent orchestration (Orchestrator + Operators) MUST be built on `auto.supervity.ai` — never with LangChain/CrewAI/raw LLM loops. This repo (backend + frontend) is everything *around* that: Policies engine, Insights pipeline, Workbench, and the API/UI that talks to Auto. See `docs/hackathon-brief.md` and `docs/command-center-guide.md` for the full requirements before implementing AI Manager/Policies/Insights/Workbench features.
 
+## Before starting the next session — re-audit against the official brief
+
+A lot changed in the 2026-08-07/08 session: `ai_manager._dispatch()` now really calls Auto's Master
+Orchestrator (structured and free-text paths both), the dashboard is live-wired, Slack + Dropbox got
+real health checks and genuine use (Dropbox mirrors the Workbench queue), the AI Manager grounds
+free-text answers in real records via OpenRouter, all 5 Round 2 Operators' outputs got fed into the
+Workbench/Policies, and the Master Orchestrator workflow itself was rewired on the Auto side (dropped
+its Outlook dependency, fixed a casing bug, and needs a critical-path human-loop fix to route through
+the Workbench instead of only Slack's native buttons — see the end of that session's conversation for
+the exact prompt).
+
+Before doing more feature work, paste the full Round 2 Problem Statement and Round 2 Participant Guide
+content back into the conversation (or point Claude at `Operations_Case_Study/ProblemStatement__Procurement_Exception_Commander (2).pdf`
+and `Operations_Case_Study/Autopilot_Asia_Round2_Participant_Guide.pdf`) and ask for a fresh, literal
+line-by-line audit against: the 4-point qualification gate, the 5 Round 2 mandatory requirements
+(§11.2), the 5-criterion rubric (§11.3), and the Do's/Don'ts list — to catch anything that regressed or
+was never actually finished, before the Grand Finale.
+
 ## Commands
 
 Backend and frontend run in Docker; the Makefile wraps `docker-compose exec` for most day-to-day tasks. On Windows without `make`, use the `docker compose exec backend ...` / `docker compose exec ...` equivalents shown in the README.

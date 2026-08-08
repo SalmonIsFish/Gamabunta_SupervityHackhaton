@@ -7,6 +7,7 @@ app/models/work_item.py). Humans review, then resolve — approve, reject, or
 modify the AI's recommendation. Every resolution is written to the audit log.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from math import ceil
@@ -33,7 +34,7 @@ from ..schemas.work_item import (
     WorkItemResponse,
 )
 from ..security import get_current_user
-from ..services import dropbox_client
+from ..services import dropbox_client, openrouter_client
 from ..services.audit import audit
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,68 @@ _RESOLUTION_TO_STATUS = {
     WorkItemResolution.MODIFIED.value: WorkItemStatus.RESOLVED.value,
     WorkItemResolution.REJECTED.value: WorkItemStatus.REJECTED.value,
 }
+
+# Used only when an Operator raises an exception without its own recommendation
+# and OpenRouter is unavailable/unconfigured — every item must still arrive
+# with *some* recommendation (see _generate_recommendation), never a bare null.
+_FALLBACK_RECOMMENDATIONS: dict[str, str] = {
+    WorkItemExceptionType.MISSING_DATA.value: (
+        "Required data is missing — verify the source record manually before proceeding."
+    ),
+    WorkItemExceptionType.LOW_CONFIDENCE.value: (
+        "Model confidence is below the auto-resolution threshold — review the underlying data before acting."
+    ),
+    WorkItemExceptionType.HIGH_STAKES.value: (
+        "Impact exceeds the auto-approval threshold — requires explicit sign-off before any action is taken."
+    ),
+    WorkItemExceptionType.NOVEL_SCENARIO.value: (
+        "No precedent on file for this scenario — treat as a new case requiring manual judgment."
+    ),
+    WorkItemExceptionType.POLICY_CONFLICT.value: (
+        "Conflicting policies matched this case — a human must decide which takes precedence."
+    ),
+}
+
+
+async def _generate_recommendation(work_item: WorkItem) -> tuple[Optional[str], Optional[float]]:
+    """
+    Best-effort AI recommendation + confidence for a work item an Operator
+    raised without supplying its own (see WorkItemCreate.ai_recommendation —
+    optional, since most Operators only send the exception itself). Tries
+    OpenRouter first, grounded in the item's own title/description/context;
+    falls back to a static per-exception-type recommendation if OpenRouter
+    is unconfigured or fails, so a recommendation is never just left null.
+    """
+    if not openrouter_client.is_configured():
+        return _FALLBACK_RECOMMENDATIONS.get(work_item.exception_type), 0.4
+
+    prompt = (
+        "You are an operations analyst. Given this exception raised by an automated agent, "
+        "recommend what a human commander should do about it in 1-2 sentences, and rate your "
+        "confidence from 0 to 1. Respond with ONLY a JSON object: "
+        '{"recommendation": "<1-2 sentences>", "confidence": <0.0-1.0>}\n\n'
+        f"Exception type: {work_item.exception_type}\n"
+        f"Title: {work_item.title}\n"
+        f"Description: {work_item.description}\n"
+        f"Context: {json.dumps(work_item.context) if work_item.context else 'none'}"
+    )
+    raw = await openrouter_client.chat_completion(messages=[{"role": "user", "content": prompt}])
+    if raw is None:
+        return _FALLBACK_RECOMMENDATIONS.get(work_item.exception_type), 0.4
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").removeprefix("json").strip()
+    try:
+        parsed = json.loads(cleaned)
+        recommendation = parsed.get("recommendation")
+        confidence = parsed.get("confidence")
+        if recommendation:
+            return str(recommendation), float(confidence) if isinstance(confidence, (int, float)) else 0.7
+    except (json.JSONDecodeError, TypeError, ValueError):
+        log.warning("Could not parse OpenRouter recommendation as JSON: %r", raw[:200])
+
+    return _FALLBACK_RECOMMENDATIONS.get(work_item.exception_type), 0.4
 
 
 async def _mirror_commander_queue(db: Session) -> None:
@@ -123,6 +186,13 @@ async def create_work_item(
         resource_id=payload.resource_id,
         context=payload.context,
     )
+
+    # Most Operators raise the exception itself but don't supply their own
+    # recommendation — every item arriving at the Workbench should still
+    # carry one (see _generate_recommendation) rather than sit at null.
+    if not work_item.ai_recommendation:
+        work_item.ai_recommendation, work_item.confidence_score = await _generate_recommendation(work_item)
+
     db.add(work_item)
     db.commit()
     db.refresh(work_item)

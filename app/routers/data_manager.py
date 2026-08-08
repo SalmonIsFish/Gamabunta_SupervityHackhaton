@@ -195,7 +195,7 @@ async def _check_dropbox() -> IntegrationStatus:
             purpose=purpose,
             status="not_configured",
             checked_live=False,
-            detail="DROPBOX_TOKEN not set in this backend's .env",
+            detail="Neither DROPBOX_REFRESH_TOKEN+DROPBOX_APP_KEY+DROPBOX_APP_SECRET nor DROPBOX_TOKEN set in this backend's .env",
             last_checked_at=_now(),
         )
     account = await dropbox_client.get_current_account()
@@ -215,7 +215,7 @@ async def _check_dropbox() -> IntegrationStatus:
         purpose=purpose,
         status="unhealthy",
         checked_live=True,
-        detail="Live get_current_account call failed — check DROPBOX_TOKEN hasn't expired",
+        detail="Live get_current_account call failed — check DROPBOX_TOKEN hasn't expired, or that DROPBOX_REFRESH_TOKEN/APP_KEY/APP_SECRET are correct",
         last_checked_at=_now(),
     )
 
