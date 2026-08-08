@@ -70,6 +70,10 @@ _OPERATOR_REGISTRY: dict[str, dict[str, Any]] = {
         "workflow_id": "019fe1e0-546e-7000-b3a8-0c75b8c4e8a3",
         "required_inputs": ["supplier_id", "item_number"],
     },
+    "customer re-promising & communication operator": {
+        "workflow_id": "019fe249-ed1a-7000-a529-5f1b165fd28d",
+        "required_inputs": ["order_id"],
+    },
 }
 
 _FREEFORM_SYSTEM_PROMPT = """You are the AI Manager for a procurement/operations Command Center. \
@@ -87,7 +91,8 @@ Separately, if the user is asking you to run, re-run, or trigger one specific na
 (rather than the whole disruption-notice flow above), set trigger_operator to that Operator's exact \
 name from this list, and nothing else: "Supplier Cascade Mapper", "Multi-Event Prioritizer", \
 "Cost & Clause Evaluator", "Logistics / Port-Cutoff Monitor", "Inventory Reallocation Planner", \
-"Demand Consolidation Optimizer", "Recovery Planner". \
+"Demand Consolidation Optimizer", "Recovery Planner", \
+"Customer Re-promising & Communication Operator". \
 Fill operator_inputs with only the specific fields that Operator needs, using only values the user \
 or the CONTEXT actually gave you — never invent a supplier_id, item_number, or any other value. If \
 the user didn't ask to trigger a specific named Operator, set trigger_operator to null and \
