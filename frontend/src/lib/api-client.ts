@@ -18,6 +18,11 @@ async function apiClientFetch<T = unknown>(endpoint: string, options: RequestIni
     headers.set('Authorization', `Bearer ${session.accessToken}`)
   }
 
+  // Skip ngrok's free-tier browser-warning interstitial, which otherwise
+  // returns 503 to any XHR/fetch request lacking this header when the
+  // backend is reached through an ngrok tunnel (see PUBLIC_ACCESS_SPEC.md).
+  headers.set('ngrok-skip-browser-warning', 'true')
+
   // Construct the full URL: http://localhost:8001/app1/api/test
   const fullUrl = `${API_URL}${BASE_PATH}${endpoint}`
 

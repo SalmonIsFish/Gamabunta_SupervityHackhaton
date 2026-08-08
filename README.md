@@ -6,6 +6,20 @@ Build an intelligent, multi-agent command center that automates business process
 
 ---
 
+## 🌐 Live Demo (AutoPilot Asia Round 2 submission)
+
+| | |
+|---|---|
+| **Dashboard (frontend)** | https://relating-receiver-announces-claims.trycloudflare.com |
+| **API (backend)** | https://recreate-maturity-senior.ngrok-free.dev |
+| **API docs** | https://recreate-maturity-senior.ngrok-free.dev/api/docs |
+
+These tunnel a locally-running Docker stack (see [`PUBLIC_ACCESS_SPEC.md`](./PUBLIC_ACCESS_SPEC.md)) —
+if either link is down, the host machine is offline; see [`SUBMISSION.md`](./SUBMISSION.md) for the
+recovery steps.
+
+---
+
 ## Prerequisites
 
 Before you begin, make sure you have these installed on your machine:

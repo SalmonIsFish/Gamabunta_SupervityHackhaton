@@ -167,6 +167,7 @@ export default function AuditLogsPage() {
       const response = await fetch(`${apiUrl}${basePath}/api/admin/audit/export?${params}`, {
         headers: {
           'Authorization': `Bearer ${(session as { accessToken?: string })?.accessToken}`,
+          'ngrok-skip-browser-warning': 'true',
         },
       })
       
