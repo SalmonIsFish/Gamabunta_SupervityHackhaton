@@ -314,3 +314,8 @@ keycloak_convert.zip
 # Personal local-dev notes
 START_DASHBOARD.md
 TEAMMATE_BRIEF.md
+# Internal planning docs — kept locally, not for the public submission repo
+NEXT_STEPS.md
+PHASE1_CONSTRUCTION_PIVOT_SPEC.md
+PUBLIC_ACCESS_SPEC.md
+SUBMISSION.md
