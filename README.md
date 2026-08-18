@@ -4,19 +4,6 @@ Your AI Command Center starter kit for the AutoPilot Hackathon.
 
 Build an intelligent, multi-agent command center that automates business processes with AI — while keeping humans in the loop for oversight and exception handling.
 
----
-
-## 🌐 Live Demo (AutoPilot Asia Round 2 submission)
-
-| | |
-|---|---|
-| **Dashboard (frontend)** | https://relating-receiver-announces-claims.trycloudflare.com |
-| **API (backend)** | https://recreate-maturity-senior.ngrok-free.dev |
-| **API docs** | https://recreate-maturity-senior.ngrok-free.dev/api/docs |
-
-These tunnel a locally-running Docker stack — if either link is down, the host machine is offline.
-
----
 
 ## Prerequisites
 
